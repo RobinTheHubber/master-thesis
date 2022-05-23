@@ -18,6 +18,7 @@ def rho_update(par, x, v, operation='difference'):
 def sample_from_dynamic_vine(distribution, n, T, m=None):
     par = [0, 1]  # todo different  evolution equation parameter for different copula parameters
     dictionary_theta = get_theta(distribution)
+    dictionary_theta_all = dict(zip([(key, [value]) for key, value in dictionary_theta.items()]))
     if distribution == 'gaussian':
         h_function = h_function_gaussian
         h_function_inv = h_function_inv_gaussian
@@ -37,8 +38,9 @@ def sample_from_dynamic_vine(distribution, n, T, m=None):
         for key in dictionary_theta.keys():
             i, j = key
             u, v = vU[i - 1], vU[i + j - 1]
-            dictionary_theta[(i, j)] = rho_update(par, u, v)  # todo extend for student t
-
+            rho_new = rho_update(par, u, v)  # todo extend for student t
+            dictionary_theta[(i, j)] = rho_new # todo extend for student t
+            dictionary_theta_all[(i,j)].append(rho_new)
     return mU
 
 
