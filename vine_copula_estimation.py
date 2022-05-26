@@ -135,12 +135,16 @@ def estimate_first_tree(dictionary_v, dictionary_theta, transformations_function
     ## compute likelihood contribution of the current tree
     for i in range(1, n):
         x0 = transformations_function(x0_tree, backwards=True)
-        res = minimize(x0=x0, method='BFGS', options={'maxiter':1000}, fun=copula_density_dynamic, args=(dictionary_v[(0, i)],dictionary_v[(0, i + 1)], copula_density, cpar_equation))
+        res = minimize(x0=x0, method='Nelder-Mead', options={'maxiter':1000}, fun=copula_density_dynamic, args=(dictionary_v[(0, i)],dictionary_v[(0, i + 1)], copula_density, cpar_equation))
+        xreal = transformations_function([0, 0.95, 0.15], backwards=True)
+        copula_density_dynamic(res.x, dictionary_v[(0, i)],dictionary_v[(0, i + 1)], copula_density, cpar_equation)
+        copula_density_dynamic(xreal, dictionary_v[(0, i)],dictionary_v[(0, i + 1)], copula_density, cpar_equation)
+        copula_density_dynamic(x0, dictionary_v[(0, i)],dictionary_v[(0, i + 1)], copula_density, cpar_equation)
         par_node = transformations_function(res.x)
         dictionary_theta[(1, i)] = par_node
         llik_tree += res.fun
         if not res.success:
-            print('fml')
+            print('fml1'+str(i))
 
     ## compute and store h-function for next tree
     dictionary_v_prime = {}
@@ -163,7 +167,7 @@ def estimate_tree(dictionary_v, dictionary_v_prime, dictionary_theta, transforma
         dictionary_theta[(j, i)] = par_node
         llik_tree += res.fun
         if not res.success:
-            print('fml')
+            print('fml'+str(j) + str(i))
 
         # print(res.message)
         # print(par_node, end='\n\n')
@@ -290,8 +294,8 @@ def get_vine_stuff(n, copula_type, dynamic=False):
     x0_copula_gaussian = 0
     x0_copula_student_t = [0, 6]
 
-    x0_copula_gaussian_dynamic = np.array([0.5, 0.5])
-    x0_copula_student_t_dynamic = np.array([0.5, 0.5, 0.5,0.5])
+    x0_copula_gaussian_dynamic = np.array([0, 0.5, 0.1])
+    x0_copula_student_t_dynamic = np.array(2*x0_copula_gaussian_dynamic)
 
     if copula_type == 'gaussian':
         copula_density = copula_density_gaussian
@@ -311,7 +315,8 @@ def get_vine_stuff(n, copula_type, dynamic=False):
         else:
             x0_copula = x0_copula_student_t
 
-
+    if dynamic:
+        transformation_copula = transformation_dynamic_equation
 
     ## specify pdf and cdf functions for the copula's per tree level
     dictionary_copula_densities = {1:copula_density, 2:copula_density, 3:copula_density , 4:copula_density, 5:copula_density}

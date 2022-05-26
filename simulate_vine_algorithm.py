@@ -1,24 +1,26 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 from copula_functions import h_function_student_t, h_function_inv_student_t, h_function_gaussian, \
-    h_function_inv_gaussian
+    h_function_inv_gaussian, par_filter
 from mapping import map_logistic
 
 
-def rho_update(par, x, v, operation='difference'):
-    xi, phi = par
+def rho_update(par, rho_, x, v, operation='difference'):
+    xi, phi_1, phi_2 = par
+    rho = map_logistic(rho_, -1, 1, backwards=True)
     if operation == 'product':
-        rho_next = xi + phi * abs(x * v)
+        rho_next = xi + phi_1 * rho + phi_2 * abs(x * v)
     elif operation == 'difference':
-        rho_next = xi + phi * abs(x - v)
+        rho_next = xi + phi_1 * rho + phi_2 * abs(x - v)
 
     return map_logistic(rho_next, -1, 1, backwards=False)
 
 
-def sample_from_dynamic_vine(distribution, n, T, m=None):
-    par = [0, 1]  # todo different  evolution equation parameter for different copula parameters
+def sample_from_dynamic_vine(distribution, n, T, cpar_equation=None):
+    par = [0, .95, 0.15]  # todo different  evolution equation parameter for different copula parameters
     dictionary_theta = get_theta(distribution)
-    dictionary_theta_all = dict(zip([(key, [value]) for key, value in dictionary_theta.items()]))
+    dictionary_theta_all = dictionary_theta.copy()
     if distribution == 'gaussian':
         h_function = h_function_gaussian
         h_function_inv = h_function_inv_gaussian
@@ -28,23 +30,41 @@ def sample_from_dynamic_vine(distribution, n, T, m=None):
         h_function_inv = h_function_inv_student_t
 
     dictionary_h, dictionary_h_inv = h_set_all_same(dictionary_theta, h_function, h_function_inv)
-
     mU = np.zeros((T, n))
     for t in range(T):
-        vU = sample_from_vine(dictionary_h, dictionary_h_inv, dictionary_theta, n=n, T=1, m=m)
+        vU = sample_from_vine(dictionary_h, dictionary_h_inv, dictionary_theta, n=n, T=1)
         vU = vU.reshape(-1, )
         mU[t, :] = vU
 
         for key in dictionary_theta.keys():
             i, j = key
             u, v = vU[i - 1], vU[i + j - 1]
-            rho_new = rho_update(par, u, v)  # todo extend for student t
+            rho = dictionary_theta[(i, j)]
+            rho_new = rho_update(par, rho, u, v, operation=cpar_equation)  # todo extend for student t
             dictionary_theta[(i, j)] = rho_new # todo extend for student t
-            dictionary_theta_all[(i,j)].append(rho_new)
+            dictionary_theta_all[(i,j)] = np.append(dictionary_theta_all[(i,j)], rho_new)
+
+    mU = sample_from_vine(dictionary_h, dictionary_h_inv, dictionary_theta_all, n=n, T=1500)
+
+    ### code below is for checking if filtering with estimation module
+    ### yields same filtered series as with filtering with simulation module with same parameters
+    # dictionary_theta_mimic = {}
+    # for key in dictionary_theta.keys():
+    #     i, j = key
+    #     rho0 = dictionary_theta_all[(i,j)][0]
+    #     u, v = mU[:, i - 1], mU[:, i + j - 1]
+    #
+    #     dictionary_theta_mimic[(i,j)] = \
+    #         par_filter(par, rho0, u, v, operation=cpar_equation)
+    #
+    #     plt.plot(dictionary_theta_all[(i, j)][1:])
+    #     plt.plot(dictionary_theta_mimic[(i, j)])
+    #     plt.show()
+
     return mU
 
 
-def sample_from_vine(dictionary_h, dictionary_h_inv, dictionary_theta, n, T, m=None):
+def sample_from_vine(dictionary_h, dictionary_h_inv, dictionary_theta, n, T):
     dictionary_v = {}
     W = np.random.random(size=(n + 1) * T).reshape((n + 1, T))
     X = np.zeros((n + 1, T))
@@ -106,7 +126,7 @@ def get_theta(distribution):
                           (3, 1): [-0.5, 4], (3, 2): [0.5, 5], \
                           (4, 1): [0.1, 4]}
 
-    dictionary_theta_g = dict(zip(dictionary_theta_t.keys(), [value[0] for k, value in dictionary_theta_t.items()]))
+    dictionary_theta_g = dict(zip(dictionary_theta_t.keys(), [np.array([value[0]]) for k, value in dictionary_theta_t.items()]))
     if distribution == 'gaussian':
         dictionary_theta = dictionary_theta_g
     if distribution == 'student_t':
@@ -115,7 +135,7 @@ def get_theta(distribution):
     return dictionary_theta
 
 
-def get_vine_data(distribution, n, T, m=None):
+def get_vine_data(distribution, n, T):
     dictionary_theta = get_theta(distribution)
     if distribution == 'gaussian':
         h_function = h_function_gaussian
@@ -127,7 +147,7 @@ def get_vine_data(distribution, n, T, m=None):
 
     dictionary_h, dictionary_h_inv = h_set_all_same(dictionary_theta, h_function, h_function_inv)
 
-    mU = sample_from_vine(dictionary_h, dictionary_h_inv, dictionary_theta, n=n, T=T, m=m)
+    mU = sample_from_vine(dictionary_h, dictionary_h_inv, dictionary_theta, n=n, T=T)
     return mU
 
 

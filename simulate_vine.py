@@ -7,7 +7,7 @@ from garch_model import *
 from simulate_vine_algorithm import get_vine_data, sample_from_dynamic_vine
 
 
-def simulate_from_vine_copula(m, T, n, copula_type, distribution_marginal, cpar_equation=None):
+def simulate_from_vine_copula(seed, T, n, copula_type, distribution_marginal, cpar_equation=None):
 
     if copula_type == 'gaussian':
         list_parameters_tree1 = [[0.5], [0.75], [0.5], [0.25]]
@@ -30,12 +30,12 @@ def simulate_from_vine_copula(m, T, n, copula_type, distribution_marginal, cpar_
     # vine = pyv.Vinecop(structure=vine_structure, pair_copulas=[list_copula_tree_1, list_copula_tree_2, list_copula_tree_3, list_copula_tree_4])
     # mU = vine.simulate(n=T, seeds=np.array([m+20])) # simulate dependent uniform random numbers from vine copula model
 
-    np.random.seed(1991)
+    np.random.seed(seed)
     print('start simulation')
     if cpar_equation is None:
-        mU = get_vine_data(copula_type, n, T, m)
+        mU = get_vine_data(copula_type, n, T)
     else:
-        mU = sample_from_dynamic_vine(distribution='gaussian', n=5, T=T, m=None)
+        mU = sample_from_dynamic_vine(distribution='gaussian', n=5, T=T, cpar_equation=cpar_equation)
 
     print('end simulation\n')
     list_marginal_objects = get_garch_data_and_models(n=n, mU=mU, distribution=distribution_marginal, mean_equation=ar1_equation, volatility_equation=garch_11_equation)

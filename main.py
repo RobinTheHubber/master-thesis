@@ -12,13 +12,13 @@ def main():
     k = 1
     M = 1
     n = 5
-
+    T = 1500
     K = 10 * k
     hist = np.zeros((M, K))
     for m in range(M):
         print('RUN ', m)
         ##### Sample data
-        list_marginal_models, par = simulate_from_vine_copula(m=m, T=1500, n=n, copula_type=copula_type, distribution_marginal=distribution_marginal, cpar_equation=cpar_equation)
+        list_marginal_models, par = simulate_from_vine_copula(seed=103, T=T, n=n, copula_type=copula_type, distribution_marginal=distribution_marginal, cpar_equation=cpar_equation)
 
         ##### Get vine stuff
         dictionary_transformation_functions, dictionary_copula_h_functions, \

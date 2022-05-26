@@ -8,17 +8,18 @@ import matplotlib.pyplot as plt
 ## filter parameter
 # evolution equations
 #######################
-def par_filter(par, vX, vV, operation='difference'):
-    xi, phi = par
+def par_filter(par, rho0, vX, vV, operation='difference'):
+    xi, phi_1, phi_2 = par
     T = len(vX)
     rho = np.zeros(T)
+    rho[0] = map_logistic(rho0, -1, 1, backwards=True)
     if operation=='product':
-        rho_next = lambda x, v: xi + phi * abs(x * v)
+        rho_next = lambda rho, x, v: xi + phi_1 * rho + phi_2 * abs(x * v)
     elif operation=='difference':
-        rho_next = lambda x, v: xi + phi * abs(x - v)
+        rho_next = lambda rho, x, v: xi + phi_1 * rho + phi_2 * abs(x - v)
 
     for t in range(1, T):
-        rho[t] = rho_next(vX[t-1], vV[t-1])
+        rho[t] = rho_next(rho[t-1], vX[t-1], vV[t-1])
 
     return map_logistic(rho[1:], -1, 1, backwards=False)
 
@@ -34,11 +35,13 @@ def filter_copula_parameters(par, u1, u2, cpar_equation):
         copula_par = np.zeros((K, T))
         for k in range(K):
             if k == 0:
-                copula_par[k, 0] = np.corrcoef(u1, u2)[0,1]
+                par0 = map_logistic(np.corrcoef(u1, u2)[0,1], -1, 1, backwards=True)
             if k == 1:
-                copula_par[k, 0] = 4 # make use of static vine copula estimated parameters for x0 for dynamic vine copula
+                par0 = 4
 
-            copula_par[k, 1:] = par_filter(par[2*k:2*k+2], u1, u2, cpar_equation)
+            copula_par[k, 0] = par0 # todo: make use of static vine copula estimated parameters for x0 for dynamic vine copula
+
+            copula_par[k, 1:] = par_filter(par[3*k:3*k+3], par0, u1, u2, cpar_equation)
 
         return copula_par
 
@@ -46,7 +49,8 @@ def copula_density_dynamic(par, u1, u2, copula_density, cpar_equation):
     if cpar_equation is None:
         negative_llik = copula_density(par, u1, u2, transformation=True)
     else:
-        copula_par = filter_copula_parameters(par, u1, u2, cpar_equation)
+        par = transformation_dynamic_equation(par)
+        copula_par = filter_copula_parameters(par, u1.reshape((-1,)), u2.reshape((-1,)), cpar_equation)
         negative_llik = copula_density(copula_par, u1.reshape((1, -1)), u2.reshape((1, -1)))
 
     return negative_llik
@@ -142,6 +146,12 @@ def transformation_gaussian_univariate(par, backwards=False):
 
     return par_transformed
 
+def transformation_dynamic_equation(par, backwards=False):
+    par_ = par.copy()
+    par_[1] = map_logistic(par[1], -1, 1, backwards=backwards)
+    par_[2] = map_logistic(par[2], -1, 1, backwards=backwards)
+    return par_
+
 def transformation_gaussian_copula(par, backwards=False):
     if backwards:
         x = (par + 1) / 2
@@ -183,4 +193,3 @@ def transformation_student_t_copula(par, backwards=False):
 #
 #     return par_transformed
 
-# todo: test estimation for gaussian simple case! -> then make time varying simulation and estimation!!
