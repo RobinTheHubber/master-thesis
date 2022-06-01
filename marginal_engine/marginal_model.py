@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.optimize import minimize
-
+import matplotlib.pyplot as plt
+import warnings
+warnings.filterwarnings("ignore")
 
 class FilterEquation:
     def __init__(self, update_function, initial_values_function, transformation_function, get_initial_parameters_function, npar, constraints=None):
@@ -33,7 +35,7 @@ class FilterEquation:
 
 class MarginalObject:
 
-    def __init__(self, distribution_module_epsilon, volatility_equation, mean_equation, parameters, optimization_method='BFGS'):
+    def __init__(self, distribution_module_epsilon, volatility_equation, mean_equation, parameters=None, optimization_method='BFGS'):
         self.distribution_module = distribution_module_epsilon
         self.mean_equation = mean_equation
         self.volatility_equation = volatility_equation
@@ -42,9 +44,10 @@ class MarginalObject:
         self.n1 = self.distribution_module.get_npar()
         self.n2 = self.n1 + self.mean_equation.get_npar()
 
-        self.distribution_parameters = parameters[:self.n1]
-        self.mean_equation.par = parameters[self.n1:self.n2]
-        self.volatility_equation.par = parameters[self.n2:]
+        if parameters is not None:
+            self.distribution_parameters = parameters[:self.n1]
+            self.mean_equation.par = parameters[self.n1:self.n2]
+            self.volatility_equation.par = parameters[self.n2:]
 
     def set_data(self, data):
         self.data = data
@@ -78,18 +81,40 @@ class MarginalObject:
     def set_constraints(self, constraints):
         self.constraints = constraints
 
+    def set_bounds(self, bounds):
+        self.bounds = bounds
+
     def fit(self):
         x0 = self.get_initial_parameters()
-        if len(self.constraints) > 0:
-            self.optimization_method = 'SLSQP'
 
-        result = minimize(x0=x0, fun=self.compute_loglikelihood, constraints=self.constraints, method=self.optimization_method, options={'maxiter':1000})
+        try:
+            result = minimize(x0=x0, fun=self.compute_loglikelihood, bounds=self.bounds,
+                              constraints=self.constraints, method='trust-constr',
+                              options={'maxiter': 1000})
+            if not result.success:
+                print('trust-constr failed\n:', result.message)
+                result = minimize(x0=x0, fun=self.compute_loglikelihood, bounds=self.bounds,
+                                  constraints=self.constraints,
+                                  method='SLSQP', options={'maxiter': 1000})
+                print(result.message)
+            else:
+                print('trust-constr succeeded\n: ', \
+                result.message)
+
+        except:
+            print('trust-constr exception')
+            result = minimize(x0=x0, fun=self.compute_loglikelihood, bounds=self.bounds, constraints=self.constraints,
+                              method='SLSQP', options={'maxiter': 1000})
+            print(result.message)
+
+
         self.convert_and_transform_parameter_array(result.x)
         self.estimated_parameters = {'dist':self.distribution_parameters,'mean':self.mean_equation.par,
                                      'vol':self.volatility_equation.par}
+
+        print(self.estimated_parameters)
         self.fit_result = result
         self.likelihood = -result.fun
-
 
     def convert_and_transform_parameter_array(self, par):
         parameters_distribution = par[:self.n1]
@@ -100,6 +125,8 @@ class MarginalObject:
 
         if self.n1 > 0:
             self.distribution_parameters = self.distribution_module.transform_parameters(parameters_distribution)
+        else:
+            self.distribution_parameters = None
 
         self.mean_equation.transform_parameters()
         self.volatility_equation.transform_parameters()
@@ -125,7 +152,23 @@ class MarginalObject:
 
             self.data = y
 
+    def simulate_data_3D(self, u, N):
+            epsilon = self.distribution_module.ppf(self.distribution_parameters, u)
+            T = len(epsilon)
+            y = np.zeros((T, N))
+            mu = np.zeros((T, N))
+            sigma2 = np.zeros((T, N))
+            mu_0 = self.mean_equation.get_initial_values()
+            sigma_0 = self.volatility_equation.get_initial_values()
+            sigma2[0] = sigma_0
+            mu[0] = mu_0
+            y[0] = mu[0] + epsilon[0] * np.sqrt(sigma2[0])
+            for t in range(1, T):
+                mu[t] = self.mean_equation.update(y[t - 1], mu[t - 1])
+                sigma2[t] = self.volatility_equation.update(y[t - 1]-mu[t-1], sigma2[t - 1])
+                y[t] = mu[t] + epsilon[t] * np.sqrt(sigma2[t])
 
+            self.data2D = y
 
 
 

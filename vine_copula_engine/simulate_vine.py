@@ -1,10 +1,5 @@
-import numpy as np
-import pyvinecopulib as pyv
-from copy import deepcopy as dc
-from scipy.stats import norm
-from mapping import map_logistic
 from garch_model import *
-from simulate_vine_algorithm import get_vine_data, sample_from_dynamic_vine
+from vine_copula_engine.simulate_vine_algorithm import get_vine_data, sample_from_dynamic_vine
 
 
 def simulate_from_vine_copula(seed, T, n, copula_type, distribution_marginal, cpar_equation=None):
@@ -60,8 +55,7 @@ def get_garch_data_and_models(n, mU, distribution, mean_equation, volatility_equ
         garch_model = MarginalObject(distribution_module_epsilon=distribution_module, volatility_equation=volatility_equation,
                                      mean_equation=mean_equation, parameters=parameters)
 
-        garch_model.set_constraints([eq_cons_garch1, eq_cons_garch2])
-
+        garch_model.set_constraints([eq_cons_garch1, eq_cons_garch2, eq_cons_garch3, eq_cons_garch4])
         vU = mU[:, j]
         garch_model.simulate_from_garch(vU)
         list_marginal_objects.append(garch_model)

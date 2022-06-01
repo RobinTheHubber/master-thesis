@@ -8,7 +8,7 @@ constant_mean_equation = FilterEquation(
     update_function=lambda par, x, y: y,
     initial_values_function = lambda par: par,
     transformation_function = lambda x, backwards=None: x,
-    get_initial_parameters_function = lambda data: np.mean(data),
+    get_initial_parameters_function = lambda data: [np.mean(data)],
     npar=1)
 
 
@@ -16,7 +16,7 @@ constant_vol_equation = FilterEquation(
     update_function=lambda par, x, y: y,
     initial_values_function=lambda par: par,
     transformation_function=lambda x, backwards=None: map_positive(x, backwards),
-    get_initial_parameters_function=lambda data: np.var(data),
+    get_initial_parameters_function=lambda data: [np.var(data)],
     npar=1)
 
 
@@ -24,7 +24,7 @@ ar1_equation = FilterEquation(
     update_function=lambda par, y, mu: par[0] + par[1] * y,
     initial_values_function=lambda par: par[0] / (1-par[1]), # mu0 := unconditional mean
     transformation_function=lambda x, backwards=None: [x[0], map_logistic(x[1], 0, 1, backwards)],
-    get_initial_parameters_function=lambda data: [np.var(data) * (1 - 0.1 - 0.85), 0.1, 0.85],
+    get_initial_parameters_function=lambda data: [np.mean(data) * (1 - 0.85), 0.85],
     npar=2)
 
 
@@ -40,10 +40,10 @@ garch_11_equation = FilterEquation(
 
 eq_cons_garch1 = {'type':'ineq', 'fun': lambda x: x[-2] + x[-1]}
 eq_cons_garch2 = {'type':'ineq', 'fun': lambda x: -(x[-2] + x[-1]) + 1}
-eq_cons_garch3 = {'type':'ineq', 'fun': lambda x: -x[-1] + 1}
-eq_cons_garch4 = {'type':'ineq', 'fun': lambda x: -x[-2] + 1}
-eq_cons_garch5 = {'type':'ineq', 'fun': lambda x: x[-1]}
-eq_cons_garch6 = {'type':'ineq', 'fun': lambda x: x[-2]}
+eq_cons_garch3 = {'type':'ineq', 'fun': lambda x: x[-1]}
+eq_cons_garch4 = {'type':'ineq', 'fun': lambda x: x[-2]}
+# eq_cons_garch5 = {'type':'ineq', 'fun': lambda x: -x[-1] + 1}
+# eq_cons_garch6 = {'type':'ineq', 'fun': lambda x: -x[-2] + 1}
 
 
 

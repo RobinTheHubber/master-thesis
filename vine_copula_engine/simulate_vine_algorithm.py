@@ -1,24 +1,33 @@
 import numpy as np
-import matplotlib.pyplot as plt
 
-from copula_functions import h_function_student_t, h_function_inv_student_t, h_function_gaussian, \
-    h_function_inv_gaussian, par_filter
+from vine_copula_engine.copula_functions import h_function_student_t, h_function_inv_student_t, h_function_gaussian, \
+    h_function_inv_gaussian
 from mapping import map_logistic
 
-
+#
 def rho_update(par, rho_, x, v, operation='difference'):
     xi, phi_1, phi_2 = par
     rho = map_logistic(rho_, -1, 1, backwards=True)
     if operation == 'product':
-        rho_next = xi + phi_1 * rho + phi_2 * abs(x * v)
+        rho_next = xi + phi_1 * rho + phi_2 * x * v
     elif operation == 'difference':
         rho_next = xi + phi_1 * rho + phi_2 * abs(x - v)
 
     return map_logistic(rho_next, -1, 1, backwards=False)
 
 
+# def rho_update(par, rho_, x, v, operation='difference'):
+#     xi, phi = par
+#     rho = map_logistic(rho_, -1, 1, backwards=True)
+#     if operation == 'product':
+#         rho_next = xi + phi * x * v
+#     elif operation == 'difference':
+#         rho_next = xi + phi * abs(x - v)
+#
+#     return map_logistic(rho_next, -1, 1, backwards=False)
+
 def sample_from_dynamic_vine(distribution, n, T, cpar_equation=None):
-    par = [0, .95, 0.15]  # todo different  evolution equation parameter for different copula parameters
+    par = [0, .9, .4]  # todo different  evolution equation parameter for different copula parameters
     dictionary_theta = get_theta(distribution)
     dictionary_theta_all = dictionary_theta.copy()
     if distribution == 'gaussian':
@@ -42,9 +51,10 @@ def sample_from_dynamic_vine(distribution, n, T, cpar_equation=None):
             rho = dictionary_theta[(i, j)]
             rho_new = rho_update(par, rho, u, v, operation=cpar_equation)  # todo extend for student t
             dictionary_theta[(i, j)] = rho_new # todo extend for student t
-            dictionary_theta_all[(i,j)] = np.append(dictionary_theta_all[(i,j)], rho_new)
+            if t < (T-1):
+                dictionary_theta_all[(i,j)] = np.append(dictionary_theta_all[(i,j)], rho_new)
 
-    mU = sample_from_vine(dictionary_h, dictionary_h_inv, dictionary_theta_all, n=n, T=1500)
+    # mU2 = sample_from_vine(dictionary_h, dictionary_h_inv, dictionary_theta_all, n=n, T=1500)
 
     ### code below is for checking if filtering with estimation module
     ### yields same filtered series as with filtering with simulation module with same parameters
@@ -77,7 +87,7 @@ def sample_from_vine(dictionary_h, dictionary_h_inv, dictionary_theta, n, T):
     for i in range(3, n + 1):
         dictionary_v[(i, 1)] = W[i, :]
 
-        for k in range(i - 1, 1, -1):
+        for k in range(i-1, 1, -1):
             try:
                 dictionary_v[(i, 1)] = dictionary_h_inv[(k, i - k)](dictionary_theta[(k, i - k)], dictionary_v[(i, 1)],
                                                                     dictionary_v[(i - 1, 2 * k - 2)])
@@ -110,6 +120,52 @@ def sample_from_vine(dictionary_h, dictionary_h_inv, dictionary_theta, n, T):
 
     return X[1:, :].T
 
+
+def sample_from_vine3D(dictionary_h, dictionary_h_inv, dictionary_theta, n, T, N):
+    dictionary_v = {}
+    W = np.random.random(size=N * (n + 1) * T).reshape((N, T, n + 1))
+    X = np.zeros((N, T, n + 1))
+    X[:, :, 1] = W[:, :, 1]
+    dictionary_v[(1, 1)] = X[:, :, 1]
+    X[:, :, 2] = dictionary_h_inv[(1, 1)](dictionary_theta[(1, 1)], W[:, :, 2], dictionary_v[(1, 1)])
+    dictionary_v[(2, 1)] = X[:, :, 2]
+    dictionary_v[(2, 2)] = dictionary_h[(1, 1)](dictionary_theta[(1, 1)], dictionary_v[(1, 1)], dictionary_v[(2, 1)])
+
+    for i in range(3, n + 1):
+        dictionary_v[(i, 1)] = W[:, :, i]
+
+        for k in range(i-1, 1, -1):
+            try:
+                dictionary_v[(i, 1)] = dictionary_h_inv[(k, i - k)](dictionary_theta[(k, i - k)], dictionary_v[(i, 1)],
+                                                                    dictionary_v[(i - 1, 2 * k - 2)])
+            except:
+                print('')
+        dictionary_v[(i, 1)] = dictionary_h_inv[(1, i - 1)](dictionary_theta[(1, i - 1)], dictionary_v[(i, 1)],
+                                                            dictionary_v[(i - 1, 1)])
+        X[:, :, i] = dictionary_v[(i, 1)]
+
+        if i == n:
+            break
+
+        dictionary_v[(i, 2)] = dictionary_h[(1, i - 1)](dictionary_theta[(1, i - 1)], dictionary_v[(i - 1, 1)],
+                                                        dictionary_v[(i, 1)])
+        dictionary_v[(i, 3)] = dictionary_h[(1, i - 1)](dictionary_theta[(1, i - 1)], dictionary_v[(i, 1)],
+                                                        dictionary_v[(i - 1, 1)])
+
+        if i > 3:
+            for j in range(2, i - 1):
+                dictionary_v[(i, 2 * j)] = dictionary_h[(j, i - j)](dictionary_theta[(j, i - j)],
+                                                                    dictionary_v[(i - 1, 2 * j - 2)],
+                                                                    dictionary_v[(i, 2 * j - 1)])
+                dictionary_v[(i, 2 * j + 1)] = dictionary_h[j, i - j](dictionary_theta[(j, i - j)],
+                                                                      dictionary_v[(i, 2 * j - 1)],
+                                                                      dictionary_v[(i - 1, 2 * j - 2)])
+
+        dictionary_v[(i, 2 * i - 2)] = dictionary_h[(i - 1, 1)](dictionary_theta[(i - 1, 1)],
+                                                                dictionary_v[(i - 1, 2 * i - 4)],
+                                                                dictionary_v[(i, 2 * i - 3)])
+
+    return X[:, :, 1:]
 
 def h_set_all_same(dictionary_theta, h_function, h_function_inv):
     dictionary_h, dictionary_h_inv = {}, {}

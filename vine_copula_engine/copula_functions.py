@@ -1,47 +1,93 @@
 import numpy as np
 from scipy.stats import norm, t as student_t, kendalltau
 from scipy.special import loggamma
-from mapping import map_logistic
+from utility.mapping import map_logistic
 import matplotlib.pyplot as plt
 
-#######################
-## filter parameter
-# evolution equations
-#######################
+
 def par_filter(par, rho0, vX, vV, operation='difference'):
     xi, phi_1, phi_2 = par
     T = len(vX)
     rho = np.zeros(T)
-    rho[0] = map_logistic(rho0, -1, 1, backwards=True)
+    rho[0] = rho0
     if operation=='product':
-        rho_next = lambda rho, x, v: xi + phi_1 * rho + phi_2 * abs(x * v)
+        rho_next = lambda rho, x, v: xi + phi_1 * rho + phi_2 * x * v
     elif operation=='difference':
         rho_next = lambda rho, x, v: xi + phi_1 * rho + phi_2 * abs(x - v)
 
     for t in range(1, T):
         rho[t] = rho_next(rho[t-1], vX[t-1], vV[t-1])
 
-    return map_logistic(rho[1:], -1, 1, backwards=False)
+    return map_logistic(rho, -1, 1, backwards=False)
 
+#
+# vX=dictionary_v[(0, i)]; vV=dictionary_v[(0, i + 1)]
+# rho0 = np.corrcoef(vV, vX)[0,1]
+# par1 = par_node
+# par2 = [0, 0.9, 0.4]
+# rho1=par_filter(par1, rho0, vX, vV, operation='product')
+# rho2=par_filter(par2, rho0, vX, vV, operation='product')
+# print(par1)
+# plt.plot(rho1)
+# plt.plot(rho2)
+# plt.show()
+
+#######################
+## filter parameter
+# evolution equations
+# #######################
+def par_filter(par, rho0, vX, vV, operation='difference'):
+    xi, phi_1, phi_2 = par
+    T = len(vX)
+    rho = np.zeros(T)
+    rho[0] = rho0
+    if operation=='product':
+        rho_next = lambda rho, x, v: xi + phi_1 * rho + phi_2 * x * v
+    elif operation=='difference':
+        rho_next = lambda rho, x, v: xi + phi_1 * rho + phi_2 * abs(x - v)
+
+    for t in range(1, T):
+        rho[t] = rho_next(rho[t-1], vX[t-1], vV[t-1])
+
+    return map_logistic(rho, -1, 1, backwards=False)
+
+
+# def par_filter(par, rho0, vX, vV, operation='difference'):
+#     xi, phi = par
+#     T = len(vX)
+#     rho = np.zeros(T)
+#     rho[0] = map_logistic(rho0, -1, 1, backwards=True)
+#     if operation=='product':
+#         rho_next = lambda x, v: xi + phi * x * v
+#     elif operation=='difference':
+#         rho_next = lambda x, v: xi + phi * abs(x - v)
+#
+#     for t in range(1, T):
+#         rho[t] = rho_next(vX[t-1], vV[t-1])
+#
+#     return map_logistic(rho[1:], -1, 1, backwards=False)
 
 ######################
 ## wrappers for dynamic
 # copula model
 ######################
 
-def filter_copula_parameters(par, u1, u2, cpar_equation):
+def filter_copula_parameters(par, u1, u2, cpar_equation, rho0=None):
         K = int(len(par)/2)
         T = len(u1)
         copula_par = np.zeros((K, T))
         for k in range(K):
             if k == 0:
-                par0 = map_logistic(np.corrcoef(u1, u2)[0,1], -1, 1, backwards=True)
+                if rho0 is None:
+                    par0 = map_logistic(np.corrcoef(u1, u2)[0,1], -1, 1, backwards=True)
+                else:
+                    par0 = rho0
             if k == 1:
                 par0 = 4
 
-            copula_par[k, 0] = par0 # todo: make use of static vine copula estimated parameters for x0 for dynamic vine copula
+            # todo: make use of static vine copula estimated parameters for x0 for dynamic vine copula
 
-            copula_par[k, 1:] = par_filter(par[3*k:3*k+3], par0, u1, u2, cpar_equation)
+            copula_par[k, :] = par_filter(par[3*k:3*k+3], par0, u1, u2, cpar_equation)
 
         return copula_par
 
@@ -50,19 +96,22 @@ def copula_density_dynamic(par, u1, u2, copula_density, cpar_equation):
         negative_llik = copula_density(par, u1, u2, transformation=True)
     else:
         par = transformation_dynamic_equation(par)
-        copula_par = filter_copula_parameters(par, u1.reshape((-1,)), u2.reshape((-1,)), cpar_equation)
-        negative_llik = copula_density(copula_par, u1.reshape((1, -1)), u2.reshape((1, -1)))
+        copula_par = filter_copula_parameters(par, u1, u2, cpar_equation)
+        negative_llik = copula_density(copula_par, u1, u2)
 
     return negative_llik
 
-def copula_h_function_dynamic(par, u1, u2, cpar_equation, h_function):
+def copula_h_function_dynamic(par, u1, u2, cpar_equation, h_function, rho0=None):
         if cpar_equation is None:
             h_function_value = h_function(par, u1, u2, transformation=True)
         else:
-            copula_par = filter_copula_parameters(par, u1, u2, cpar_equation)
-            h_function_value = h_function(copula_par, u1, u2)
+            copula_par = filter_copula_parameters(par, u1, u2, cpar_equation, rho0)
+            h_function_value = h_function(copula_par, u1, u2).reshape((-1,))
 
-        return h_function_value
+        if rho0 is None:
+            return h_function_value
+        else:
+            return h_function_value, copula_par.reshape((-1,))
 
 ######################
 ## copula density's ##
@@ -148,8 +197,8 @@ def transformation_gaussian_univariate(par, backwards=False):
 
 def transformation_dynamic_equation(par, backwards=False):
     par_ = par.copy()
-    par_[1] = map_logistic(par[1], -1, 1, backwards=backwards)
-    par_[2] = map_logistic(par[2], -1, 1, backwards=backwards)
+    par_[1] = map_logistic(par[1], 0, 1, backwards=backwards)
+    par_[2] = map_logistic(par[2], 0, 1, backwards=backwards)
     return par_
 
 def transformation_gaussian_copula(par, backwards=False):

@@ -1,24 +1,23 @@
 import numpy as np
-from vine_copula_estimation import get_vine_stuff, likelihood_vine, estimate_vine_sequentially, pack_parameters, unpack_parameters
-from simulate_vine import simulate_from_vine_copula
-from scipy.optimize import minimize
+from vine_copula_engine.vine_copula_estimation import get_vine_stuff, estimate_vine_sequentially
+from vine_copula_engine.simulate_vine import simulate_from_vine_copula
 
 
 def main():
     copula_type = 'gaussian'
     distribution_marginal = 'gaussian'
-    cpar_equation = 'difference'
+    cpar_equation = 'product'
     dynamic = True
     k = 1
     M = 1
     n = 5
-    T = 1500
+    T = 10000
     K = 10 * k
     hist = np.zeros((M, K))
     for m in range(M):
         print('RUN ', m)
         ##### Sample data
-        list_marginal_models, par = simulate_from_vine_copula(seed=103, T=T, n=n, copula_type=copula_type, distribution_marginal=distribution_marginal, cpar_equation=cpar_equation)
+        list_marginal_models, par = simulate_from_vine_copula(seed=190, T=T, n=n, copula_type=copula_type, distribution_marginal=distribution_marginal, cpar_equation=cpar_equation)
 
         ##### Get vine stuff
         dictionary_transformation_functions, dictionary_copula_h_functions, \
