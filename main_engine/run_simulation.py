@@ -17,15 +17,21 @@ def main():
     for m in range(M):
         print('RUN ', m)
         ##### Sample data
-        list_marginal_models, par = simulate_from_vine_copula(seed=190, T=T, n=n, copula_type=copula_type, distribution_marginal=distribution_marginal, cpar_equation=cpar_equation)
+        list_marginal_models, par = simulate_from_vine_copula(seed=190, T=T, n=n, copula_type=copula_type,
+                                                              distribution_marginal=distribution_marginal,
+                                                              cpar_equation=cpar_equation)
 
         ##### Get vine stuff
         dictionary_transformation_functions, dictionary_copula_h_functions, \
-        dictionary_copula_densities, dictionary_parameter_initial_values= get_vine_stuff(n=n, copula_type=copula_type, dynamic=dynamic)
+        dictionary_copula_densities, dictionary_parameter_initial_values = get_vine_stuff(n=n, copula_type=copula_type,
+                                                                                          dynamic=dynamic)
 
         ####  Estimate the vine (sequentially)
-        llik_seq, dicParameters_seq = estimate_vine_sequentially(list_marginal_models, dictionary_transformation_functions, dictionary_copula_h_functions
-                                            , dictionary_copula_densities, dictionary_parameter_initial_values, cpar_equation)
+        llik_seq, dicParameters_seq = estimate_vine_sequentially(list_marginal_models,
+                                                                 dictionary_transformation_functions,
+                                                                 dictionary_copula_h_functions
+                                                                 , dictionary_copula_densities,
+                                                                 dictionary_parameter_initial_values, cpar_equation)
 
         # listParameter_keys, listParameters_values_seq, dicParameters_number = unpack_parameters(dicParameters_seq, dictionary_transformation_functions)
         # npar_marginal = 10
@@ -37,31 +43,30 @@ def main():
         #     dictionary_copula_h_functions, lPDF_functions_marginals
         #     , lCDF_functions_marginals, dictionary_copula_densities))
 
-
         # llik_nonseq = res.fun
         # dicParameters_nonseq = pack_parameters(listParameter_keys, list(list_marginal_parameters) + list(res.x), dicParameters_number, dictionary_transformation_functions)
 
         # store parameter output
         hist_output = []
         for j in range(1, n):
-            for i in range(1, n-j+1):
+            for i in range(1, n - j + 1):
                 hist_output += list(dicParameters_seq[(j, i)])
 
         hist[m, :] = hist_output
 
-        print('#'*50 + '\nFinal likelihood sequential:', llik_seq, end='\n')
+        print('#' * 50 + '\nFinal likelihood sequential:', llik_seq, end='\n')
         # print('Final likelihood full:', llik_nonseq, end='\n')
-        print('#'*50 + '\nFinal parameter set sequential:', dicParameters_seq)
+        print('#' * 50 + '\nFinal parameter set sequential:', dicParameters_seq)
         # print('Final parameter set full:', dicParameters_nonseq)
 
     import matplotlib.pyplot as plt
     count = 0
-    for j in range(n-1, 0, -1):
-        tree=n-j
+    for j in range(n - 1, 0, -1):
+        tree = n - j
         plt.figure(tree)
         fig, axs = plt.subplots(nrows=j, ncols=k)
         fig.suptitle('tree ' + str(tree))
-        if j==1 and copula_type=='gaussian':
+        if j == 1 and copula_type == 'gaussian':
             axs.hist(hist[:, count])
             ax.axvline(par[count], color='red', lw=2)
 
@@ -73,6 +78,7 @@ def main():
                 count += 1
 
     plt.show()
+
 
 if __name__ == '__main__':
     main()

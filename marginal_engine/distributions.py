@@ -1,7 +1,8 @@
 import numpy as np
 from scipy.stats import norm, t, skewnorm
-from mapping import *
+from utility.mapping import *
 from scipy.special import loggamma
+
 
 class gaussian:
     @staticmethod
@@ -31,6 +32,7 @@ class gaussian:
         mu, sigma2 = par
         return norm.cdf(x=data, loc=mu, scale=sigma2)
 
+
 class student_t:
     @staticmethod
     def transform_parameters(par, backwards=False):
@@ -46,21 +48,23 @@ class student_t:
 
     @staticmethod
     def ppf(par, x):
-       nu = par[0]
-       return t.ppf(x, df=nu, loc=0, scale= np.sqrt((nu-2) / nu))
+        nu = par[0]
+        return t.ppf(x, df=nu, loc=0, scale=np.sqrt((nu - 2) / nu))
 
     @staticmethod
     def loglik(par, x, array_sigma2, array_mu):
         nu = par[0]
-        y = (x-array_mu) / np.sqrt(array_sigma2)
-        logpdf = - 1 / 2 * np.log((nu-2) * np.pi * array_sigma2) + loggamma((nu + 1) / 2) - loggamma(nu/2) - (nu + 1) / 2 * np.log(1 + y**2 / (nu-2))
+        y = (x - array_mu) / np.sqrt(array_sigma2)
+        logpdf = - 1 / 2 * np.log((nu - 2) * np.pi * array_sigma2) + loggamma((nu + 1) / 2) - loggamma(nu / 2) - (
+                    nu + 1) / 2 * np.log(1 + y ** 2 / (nu - 2))
         loglik = sum(logpdf)
         return loglik
 
     @staticmethod
     def cdf(par, x):
         nu = par[0]
-        return t.cdf(x, df=nu, scale=np.sqrt((nu-2) / nu))
+        return t.cdf(x, df=nu, scale=np.sqrt((nu - 2) / nu))
+
 
 class skewed_normal:
 
@@ -76,15 +80,14 @@ class skewed_normal:
     def ppf(par, x):
         pass
 
-
     @staticmethod
     def loglik(par, x):
         pass
 
-
     @staticmethod
     def cdf(par, x):
         pass
+
 
 class skewed_t:
     # todo: create skewed-t distribution
@@ -101,11 +104,9 @@ class skewed_t:
     def ppf(x):
         pass
 
-
     @staticmethod
     def loglik(x):
         pass
-
 
     @staticmethod
     def cdf(x):

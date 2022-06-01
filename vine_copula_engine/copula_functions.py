@@ -10,15 +10,16 @@ def par_filter(par, rho0, vX, vV, operation='difference'):
     T = len(vX)
     rho = np.zeros(T)
     rho[0] = rho0
-    if operation=='product':
+    if operation == 'product':
         rho_next = lambda rho, x, v: xi + phi_1 * rho + phi_2 * x * v
-    elif operation=='difference':
+    elif operation == 'difference':
         rho_next = lambda rho, x, v: xi + phi_1 * rho + phi_2 * abs(x - v)
 
     for t in range(1, T):
-        rho[t] = rho_next(rho[t-1], vX[t-1], vV[t-1])
+        rho[t] = rho_next(rho[t - 1], vX[t - 1], vV[t - 1])
 
     return map_logistic(rho, -1, 1, backwards=False)
+
 
 #
 # vX=dictionary_v[(0, i)]; vV=dictionary_v[(0, i + 1)]
@@ -39,15 +40,15 @@ def par_filter(par, rho0, vX, vV, operation='difference'):
 def par_filter(par, rho0, vX, vV, operation='difference'):
     xi, phi_1, phi_2 = par
     T = len(vX)
-    rho = np.zeros(T)
+    rho = np.zeros(T+1)
     rho[0] = rho0
-    if operation=='product':
+    if operation == 'product':
         rho_next = lambda rho, x, v: xi + phi_1 * rho + phi_2 * x * v
-    elif operation=='difference':
+    elif operation == 'difference':
         rho_next = lambda rho, x, v: xi + phi_1 * rho + phi_2 * abs(x - v)
 
-    for t in range(1, T):
-        rho[t] = rho_next(rho[t-1], vX[t-1], vV[t-1])
+    for t in range(1, T+1):
+        rho[t] = rho_next(rho[t - 1], vX[t - 1], vV[t - 1])
 
     return map_logistic(rho, -1, 1, backwards=False)
 
@@ -73,23 +74,29 @@ def par_filter(par, rho0, vX, vV, operation='difference'):
 ######################
 
 def filter_copula_parameters(par, u1, u2, cpar_equation, rho0=None):
-        K = int(len(par)/2)
-        T = len(u1)
-        copula_par = np.zeros((K, T))
+    K = int(len(par) / 2)
+    T = len(u1)
+    copula_par = np.zeros((K, T+1))
+
+    if rho0 is not None:
+        copula_par[:, 0] = rho0
+    else:
         for k in range(K):
             if k == 0:
-                if rho0 is None:
-                    par0 = map_logistic(np.corrcoef(u1, u2)[0,1], -1, 1, backwards=True)
-                else:
-                    par0 = rho0
+                copula_par[0, 0] = map_logistic(np.corrcoef(u1, u2)[0, 1], -1, 1, backwards=True)
+
             if k == 1:
-                par0 = 4
+                copula_par[1, 0] = 4
 
-            # todo: make use of static vine copula estimated parameters for x0 for dynamic vine copula
 
-            copula_par[k, :] = par_filter(par[3*k:3*k+3], par0, u1, u2, cpar_equation)
+    for k in range(K):
+        # todo: make use of static vine copula estimated parameters for x0 for dynamic vine copula
+        # it will be pretty similar to sample correlation between v1 and v2 but for student-t might be a bit more difficult
 
-        return copula_par
+        copula_par[k, :] = par_filter(par[3 * k:3 * k + 3], copula_par[k, 0], u1, u2, cpar_equation)
+
+    return copula_par
+
 
 def copula_density_dynamic(par, u1, u2, copula_density, cpar_equation):
     if cpar_equation is None:
@@ -97,21 +104,25 @@ def copula_density_dynamic(par, u1, u2, copula_density, cpar_equation):
     else:
         par = transformation_dynamic_equation(par)
         copula_par = filter_copula_parameters(par, u1, u2, cpar_equation)
-        negative_llik = copula_density(copula_par, u1, u2)
+        T = len(u1)
+        negative_llik = copula_density(copula_par[:, :T], u1, u2)
 
     return negative_llik
 
-def copula_h_function_dynamic(par, u1, u2, cpar_equation, h_function, rho0=None):
-        if cpar_equation is None:
-            h_function_value = h_function(par, u1, u2, transformation=True)
-        else:
-            copula_par = filter_copula_parameters(par, u1, u2, cpar_equation, rho0)
-            h_function_value = h_function(copula_par, u1, u2).reshape((-1,))
 
-        if rho0 is None:
-            return h_function_value
-        else:
-            return h_function_value, copula_par.reshape((-1,))
+def copula_h_function_dynamic(par, u1, u2, cpar_equation, h_function, rho0=None, output_copula_par=False):
+    if cpar_equation is None:
+        h_function_value = h_function(par, u1, u2, transformation=True)
+    else:
+        T = len(u1)
+        copula_par = filter_copula_parameters(par, u1, u2, cpar_equation, rho0)
+        h_function_value = h_function(copula_par[:, T], u1, u2).reshape((-1,))
+
+    if output_copula_par:
+        return h_function_value, copula_par[:, :T]
+    else:
+        return h_function_value
+
 
 ######################
 ## copula density's ##
@@ -119,6 +130,8 @@ def copula_h_function_dynamic(par, u1, u2, cpar_equation, h_function, rho0=None)
 """""
 define copula density in log form for numerical convenience 
 """""
+
+
 def copula_density_gaussian(rho_, u1, u2, transformation=False):
     if transformation:
         rho = transformation_gaussian_copula(rho_)
@@ -127,9 +140,11 @@ def copula_density_gaussian(rho_, u1, u2, transformation=False):
 
     x1, x2 = norm.ppf((u1, u2))
     # c = (1-rho**2)**(-0.5) * np.exp(- (rho**2 * (x1**2 + x2**2) - 2 * rho * x1 * x2) / (2*(1-rho**2)))
-    copula_log_density = -0.5 * np.log((1-rho**2)) - (rho**2 * (x1**2 + x2**2) - 2 * rho * x1 * x2) / (2*(1-rho**2))
+    copula_log_density = -0.5 * np.log((1 - rho ** 2)) - (rho ** 2 * (x1 ** 2 + x2 ** 2) - 2 * rho * x1 * x2) / (
+            2 * (1 - rho ** 2))
     llik = np.sum(copula_log_density)
     return -llik
+
 
 def copula_density_student_t(par, u1, u2, transformation=False):
     if transformation:
@@ -141,12 +156,14 @@ def copula_density_student_t(par, u1, u2, transformation=False):
     # kendall_tau = kendalltau(u1, u2)
     # rho = np.sin(np.pi / 2 * kendall_tau.correlation)
     x1, x2 = student_t.ppf((u1, u2), df=nu)
-    copula_log_density = - 1 / 2 * np.log(1 - rho**2) + loggamma((nu + m) / 2) + (m-1) * loggamma(nu / 2) - m * loggamma((nu + 1) / 2) \
-                         - (nu + m) / 2  * np.log(1 + 1 / (1 - rho**2) * (x1**2 + x2**2 - 2 * rho * x1 * x2)  / nu)\
-                         + (nu + 1) / 2 * (np.log(1 + x1**2/nu) + np.log(1 + x2**2/nu))
+    copula_log_density = - 1 / 2 * np.log(1 - rho ** 2) + loggamma((nu + m) / 2) + (m - 1) * loggamma(
+        nu / 2) - m * loggamma((nu + 1) / 2) \
+                         - (nu + m) / 2 * np.log(1 + 1 / (1 - rho ** 2) * (x1 ** 2 + x2 ** 2 - 2 * rho * x1 * x2) / nu) \
+                         + (nu + 1) / 2 * (np.log(1 + x1 ** 2 / nu) + np.log(1 + x2 ** 2 / nu))
 
     llik = np.sum(copula_log_density)
     return -llik
+
 
 ######################
 ## h function's ######
@@ -154,34 +171,40 @@ def copula_density_student_t(par, u1, u2, transformation=False):
 """""
 h-function is defined as h(x,v):= derivative of C(x,v) wrt v
 """""
+
+
 def h_function_gaussian(rho, x, v):
     x1, x2 = norm.ppf((x, v))
-    h_function_value = norm.cdf((x1 - rho * x2) / np.sqrt(1-rho**2))
+    h_function_value = norm.cdf((x1 - rho * x2) / np.sqrt(1 - rho ** 2))
     return h_function_value
+
 
 def h_function_student_t(par, x, v):
     # rho, nu = transformation_student_t_copula(par)
     rho, nu = par
     x1, x2 = student_t.ppf((x, v), df=nu)
     numerator = x1 - rho * x2
-    denominator = np.sqrt((nu + x2 ** 2) * (1 - rho**2) / (nu + 1))
-    h_function_value = student_t.cdf(numerator / denominator, df=nu+1)
+    denominator = np.sqrt((nu + x2 ** 2) * (1 - rho ** 2) / (nu + 1))
+    h_function_value = student_t.cdf(numerator / denominator, df=nu + 1)
     return h_function_value
+
 
 ######################
 ## h-inv function's ######
 ######################
 def h_function_inv_student_t(par, x, v):
     rho, nu = par
-    x1 = student_t.ppf(x, df=nu+1)
+    x1 = student_t.ppf(x, df=nu + 1)
     x2 = student_t.ppf(v, df=nu)
-    h_inv_value = student_t.cdf(x1 * np.sqrt((nu + x2 ** 2) * (1-rho**2) / (nu + 1)) + x2 * rho, df=nu)
+    h_inv_value = student_t.cdf(x1 * np.sqrt((nu + x2 ** 2) * (1 - rho ** 2) / (nu + 1)) + x2 * rho, df=nu)
     return h_inv_value
+
 
 def h_function_inv_gaussian(rho, x, v):
     x1, x2 = norm.ppf((x, v))
-    h_inv_value = norm.cdf(x1 * np.sqrt(1-rho**2) + x2 * rho)
+    h_inv_value = norm.cdf(x1 * np.sqrt(1 - rho ** 2) + x2 * rho)
     return h_inv_value
+
 
 ##############################
 ## transformation functions ##
@@ -195,11 +218,13 @@ def transformation_gaussian_univariate(par, backwards=False):
 
     return par_transformed
 
+
 def transformation_dynamic_equation(par, backwards=False):
     par_ = par.copy()
     par_[1] = map_logistic(par[1], 0, 1, backwards=backwards)
-    par_[2] = map_logistic(par[2], 0, 1, backwards=backwards)
+    # par_[2] = map_logistic(par[2], -1, 1, backwards=backwards)
     return par_
+
 
 def transformation_gaussian_copula(par, backwards=False):
     if backwards:
@@ -209,6 +234,7 @@ def transformation_gaussian_copula(par, backwards=False):
         par = 2 * np.exp(par) / (1 + np.exp(par)) - 1
 
     return par
+
 
 def transformation_student_t_copula(par, backwards=False):
     rho_, nu_ = par
@@ -241,4 +267,3 @@ def transformation_student_t_copula(par, backwards=False):
 #         par_transformed[1] = par_transformed[1] @ par_transformed[1].T
 #
 #     return par_transformed
-

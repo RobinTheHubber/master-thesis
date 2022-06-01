@@ -1,9 +1,9 @@
-from garch_model import *
+from marginal_engine.garch_model import *
 from vine_copula_engine.simulate_vine_algorithm import get_vine_data, sample_from_dynamic_vine
+from marginal_engine.distributions import *
 
 
 def simulate_from_vine_copula(seed, T, n, copula_type, distribution_marginal, cpar_equation=None):
-
     if copula_type == 'gaussian':
         list_parameters_tree1 = [[0.5], [0.75], [0.5], [0.25]]
         list_parameters_tree2 = [[0.2], [0.1], [-0.2]]
@@ -11,10 +11,10 @@ def simulate_from_vine_copula(seed, T, n, copula_type, distribution_marginal, cp
         list_parameters_tree4 = [[0.1]]
 
     if copula_type == 'student_t':
-        list_parameters_tree1 = np.array([[0.5, 4], [0.75, 3], [0.5, 4], [0.25,4]]).reshape((4,2,1))
-        list_parameters_tree2 = np.array([[0.2,3], [0.1,4], [-0.2,3]]).reshape((3,2,1))
-        list_parameters_tree3 = np.array([[-0.5,4], [0.5,5]]).reshape((2,2,1))
-        list_parameters_tree4 = np.array([[0.1,4]]).reshape((1, 2, 1))
+        list_parameters_tree1 = np.array([[0.5, 4], [0.75, 3], [0.5, 4], [0.25, 4]]).reshape((4, 2, 1))
+        list_parameters_tree2 = np.array([[0.2, 3], [0.1, 4], [-0.2, 3]]).reshape((3, 2, 1))
+        list_parameters_tree3 = np.array([[-0.5, 4], [0.5, 5]]).reshape((2, 2, 1))
+        list_parameters_tree4 = np.array([[0.1, 4]]).reshape((1, 2, 1))
 
     # rho13 = rho13_2 * np.sqrt(1-rho12**2) * np.sqrt(1-rho23**2) + rho12*rho23 # 0.2318
     # vine_structure = pyv.DVineStructure(order=np.arange(1, n+1))
@@ -33,13 +33,13 @@ def simulate_from_vine_copula(seed, T, n, copula_type, distribution_marginal, cp
         mU = sample_from_dynamic_vine(distribution='gaussian', n=5, T=T, cpar_equation=cpar_equation)
 
     print('end simulation\n')
-    list_marginal_objects = get_garch_data_and_models(n=n, mU=mU, distribution=distribution_marginal, mean_equation=ar1_equation, volatility_equation=garch_11_equation)
+    list_marginal_objects = get_garch_data_and_models(n=n, mU=mU, distribution=distribution_marginal,
+                                                      mean_equation=ar1_equation, volatility_equation=garch_11_equation)
 
-    return list_marginal_objects, list(np.array(list_parameters_tree1).flatten()) +\
-                     list(np.array(list_parameters_tree2).flatten()) +\
-                     list(np.array(list_parameters_tree3).flatten()) +\
-                     list(np.array(list_parameters_tree4).flatten()) # return first copula parameter for every tree
-
+    return list_marginal_objects, list(np.array(list_parameters_tree1).flatten()) + \
+           list(np.array(list_parameters_tree2).flatten()) + \
+           list(np.array(list_parameters_tree3).flatten()) + \
+           list(np.array(list_parameters_tree4).flatten())  # return first copula parameter for every tree
 
 
 def get_garch_data_and_models(n, mU, distribution, mean_equation, volatility_equation):
@@ -52,7 +52,8 @@ def get_garch_data_and_models(n, mU, distribution, mean_equation, volatility_equ
         distribution_module = student_t
 
     for j in range(n):
-        garch_model = MarginalObject(distribution_module_epsilon=distribution_module, volatility_equation=volatility_equation,
+        garch_model = MarginalObject(distribution_module_epsilon=distribution_module,
+                                     volatility_equation=volatility_equation,
                                      mean_equation=mean_equation, parameters=parameters)
 
         garch_model.set_constraints([eq_cons_garch1, eq_cons_garch2, eq_cons_garch3, eq_cons_garch4])
