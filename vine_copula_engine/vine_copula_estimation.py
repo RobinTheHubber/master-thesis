@@ -1,5 +1,8 @@
 from scipy.optimize import minimize
+
+from utility.util import get_keys
 from vine_copula_engine.copula_functions import *
+from vine_copula_engine.dynamic_copula_functions import *
 
 #####################################
 ##### Estimate Vine copula functions
@@ -109,6 +112,82 @@ from vine_copula_engine.copula_functions import *
 #     print(-llik)
 #     return llik
 
+
+def get_filtered_rho_before_estimation(PITs, copula_h_function, dictionary_theta, n, cpar_equation, realized_measure=None):
+    get_rho0 = lambda x1, x2: np.corrcoef(x1, x2)[0,1]
+
+    dictionary_v = {}
+    dictionary_v_prime = {}
+    dictionary_filtered_rho = {}
+
+    for i in range(1, n + 1):
+        dictionary_v[(0, i)] = PITs[:, i - 1]
+
+    dictionary_v_prime[(1, 1)], dictionary_filtered_rho[(1, 1)] = copula_h_function_dynamic(dictionary_theta[(1, 1)],
+                                                                                            dictionary_v[(0, 1)],
+                                                                                            dictionary_v[(0, 2)],
+                                                                                            cpar_equation,
+                                                                                            copula_h_function,
+                                                                                            get_rho0(dictionary_v[(0, 1)],
+                                                                                            dictionary_v[(0, 2)]),
+                                                                                            output_copula_par=True,
+                                                                                            realized_measure=realized_measure[(1,1)]
+                                                                                            )
+    for k in range(1, n - 2):
+        dictionary_v[(1, k + 1)], dictionary_filtered_rho[(1, k + 1)] = copula_h_function_dynamic(
+            dictionary_theta[(1, k + 1)], dictionary_v[(0, k + 2)],
+            dictionary_v[(0, k + 1)], cpar_equation, copula_h_function, get_rho0(dictionary_v[(0, k + 1)], dictionary_v[(0, k + 2)]), output_copula_par=True, realized_measure=realized_measure[(1, k + 1)])
+        dictionary_v_prime[(1, k + 1)], _ = copula_h_function_dynamic(dictionary_theta[(1, k + 1)],
+                                                                      dictionary_v[(0, k + 1)],
+                                                                      dictionary_v[(0, k + 2)],
+                                                                      cpar_equation, copula_h_function,
+                                                                      get_rho0(dictionary_v[(0, k + 1)],
+                                                                               dictionary_v[(0, k + 2)]), output_copula_par=True,
+                                                                      realized_measure=realized_measure[(1, k + 1)]
+                                                                      )
+
+    dictionary_v[(1, n - 1)], dictionary_filtered_rho[(1, n - 1)] = copula_h_function_dynamic(
+        dictionary_theta[(1, n - 1)], dictionary_v[(0, n)],
+        dictionary_v[(0, n - 1)], cpar_equation, copula_h_function, get_rho0(dictionary_v[(0, n)], dictionary_v[(0, n - 1)]), output_copula_par=True,
+        realized_measure=realized_measure[(1, n - 1)])
+
+    for j in range(2, n + 1):
+
+        dictionary_v_prime[(j, 1)], dictionary_filtered_rho[(j, 1)] = copula_h_function_dynamic(
+            dictionary_theta[(j, 1)], dictionary_v_prime[(j - 1, 1)],
+            dictionary_v[(j - 1, 2)], cpar_equation, copula_h_function, get_rho0(dictionary_v_prime[(j - 1, 1)], dictionary_v[(j - 1, 2)]), output_copula_par=True,
+            realized_measure=realized_measure[(j, 1)]
+        )
+
+        if j == n - 1:
+            return dictionary_filtered_rho
+
+        if n > 4:
+            for i in range(1, n - j - 1):
+                dictionary_v[(j, i + 1)], dictionary_filtered_rho[(j, i + 1)] = copula_h_function_dynamic(
+                    dictionary_theta[(j, i + 1)],
+                    dictionary_v[(j - 1, i + 2)],
+                    dictionary_v_prime[(j - 1, i + 1)], cpar_equation,
+                    copula_h_function, get_rho0(dictionary_v[(j - 1, i + 2)], dictionary_v_prime[(j - 1, i + 1)]), output_copula_par=True,
+                    realized_measure=realized_measure[(j, i + 1)]
+                )
+
+                dictionary_v_prime[(j, i + 1)], _ = copula_h_function_dynamic(dictionary_theta[(j, i + 1)],
+                                                                              dictionary_v_prime[(j - 1, i + 1)],
+                                                                              dictionary_v[(j - 1, i + 2)],
+                                                                              cpar_equation,
+                                                                              copula_h_function, get_rho0(dictionary_v_prime[(j - 1, i + 1)], dictionary_v[(j - 1, i + 2)]), output_copula_par=True,
+                                                                              realized_measure=realized_measure[(j, i + 1)]
+                                                                              )
+
+        dictionary_v[(j, n - j)], dictionary_filtered_rho[(j, n - j)] = copula_h_function_dynamic(
+            dictionary_theta[(j, n - j)], dictionary_v[(j - 1, n - j + 1)], dictionary_v_prime[(j - 1, n - j)],
+            cpar_equation, copula_h_function, get_rho0(dictionary_v[(j - 1, n - j + 1)], dictionary_v_prime[(j - 1, n - j)]), output_copula_par=True,
+            realized_measure=realized_measure[(j, n - j)]
+        )
+
+
+
 def get_filtered_rho_after_estimation(PITs, copula_h_function, dictionary_theta, n, cpar_equation, rho0, realized_measure=None):
     dictionary_v = {}
     dictionary_v_prime = {}
@@ -198,10 +277,22 @@ def estimate_marginals(list_marginal_models):
     return dictionary_v, dictionary_theta
 
 def get_bounds(K):
-    if K == 1:
-        bounds = [[-np.inf, np.inf]]*4
-    elif K == 2:
-        bounds = [[-np.inf, np.inf]]*8
+    bounds = None
+    if RunParameters.estimate_static_vine:
+        if RunParameters.copula_type == 'gaussian':
+            bounds = [[-.999999,.999999]]
+        if RunParameters.copula_type == 'student_t':
+            bounds = [[-.999999, .999999], [2, 60]]
+
+    else:
+        if RunParameters.evolution_type == 'simple':
+            if RunParameters.skip_realized:
+                bounds = [[0, np.inf], [0, 1], [0, np.inf]]
+            else:
+                bounds = [[0, np.inf], [0, 1], [0, np.inf]]
+
+            if RunParameters.copula_type == 'student_t':
+                bounds += [[0, np.inf], [0, 1], [-np.inf, 0]]
 
     return bounds
 
@@ -212,23 +303,27 @@ def estimate_first_tree(filtered_rho, dictionary_v, dictionary_theta, transforma
     ## compute likelihood contribution of the current tree
     for i in range(1, n):
         K = int(len(x0_tree)/npar_evolution)
-        x0 = np.hstack([transformations_function(x0_tree[npar_evolution*k:npar_evolution*(k+1)], backwards=True) for k in range(K)])
+        # x0 = np.hstack([transformations_function(x0_tree[npar_evolution*k:npar_evolution*(k+1)], backwards=True) for k in range(K)])
         bounds = get_bounds(K)
-        res = minimize(x0=x0, method='BFGS', options={'maxiter': 1000}, fun=copula_density_dynamic,
+        # x0_tree = [map_logistic(0.67322214, -1, 1, backwards=True), 0, 0, 0,
+        #            map_logistic(8.09622576, 2, 60, backwards=True), 0, 0, 0]
+
+        res = minimize(x0=x0_tree, method=RunParameters.optimization_method, bounds=bounds, options={'maxiter': 1000}, fun=copula_density_dynamic,
                        args=(dictionary_v[(0, i)], dictionary_v[(0, i + 1)], copula_density, cpar_equation, realized_measure[(1, i)]))
 
-        # xreal = transformations_function([0, 0.95, 0.15], backwards=True)
-        # copula_density_dynamic(res.x, dictionary_v[(0, i)], dictionary_v[(0, i + 1)], copula_density, cpar_equation)
-        # copula_density_dynamic(xreal, dictionary_v[(0, i)], dictionary_v[(0, i + 1)], copula_density, cpar_equation)
-        # copula_density_dynamic(x0, dictionary_v[(0, i)], dictionary_v[(0, i + 1)], copula_density, cpar_equation)
         par_node = transformations_function(res.x)
         dictionary_theta[(1, i)] = par_node
         filtered_rho[(1, i)] = filter_copula_parameters(par_node, dictionary_v[(0, i)],
                                                         dictionary_v[(0, i + 1)], cpar_equation, realized_measure=realized_measure[(1, i)])
-
         llik_tree += res.fun
         if not res.success:
             print('fml1' + str(i))
+
+            print(par_node)
+            plt.plot(filtered_rho[(1, i)][0])
+            plt.figure(2)
+            plt.plot(filtered_rho[(1, i)][1])
+            plt.show()
 
     ## compute and store h-function for next tree
     dictionary_v_prime = {}
@@ -256,13 +351,15 @@ def estimate_tree(filtered_rho, dictionary_v, dictionary_v_prime, dictionary_the
         x0 = x0_tree
         K = int(len(x0)/npar_evolution)
         bounds = get_bounds(K)
-        res = minimize(x0=x0, method='BFGS', options={'maxiter': 1000}, fun=copula_density_dynamic, args=(
+        res = minimize(x0=x0, method=RunParameters.optimization_method, bounds=bounds, options={'maxiter': 1000}, fun=copula_density_dynamic, args=(
         dictionary_v_prime[(j - 1, i)], dictionary_v[(j - 1, i + 1)], copula_density, cpar_equation, realized_measure[(j, i)]))
         par_node = transformations_function(res.x)
         filtered_rho[(j, i)] = filter_copula_parameters(par_node, dictionary_v_prime[(j - 1, i)], dictionary_v[(j - 1, i + 1)], cpar_equation, realized_measure=realized_measure[(j, i)])
         dictionary_theta[(j, i)] = par_node
         llik_tree += res.fun
         if not res.success:
+            print((res.success, par_node))
+            plt.plot(filtered_rho[(j, i)][0])
             print('fml' + str(j) + str(i))
 
         # print(res.message)
@@ -369,33 +466,28 @@ def estimate_vine_sequentially(dictionary_v, dictionary_theta, dictionary_transf
 
 def get_vine_stuff(n, copula_type, dynamic=False):
     ## create tree: specify the conditioned variables in each node for every tree
-    x0_copula_gaussian = 0
+    x0_copula_gaussian = [0]
     x0_copula_student_t = [0, 6]
-
-    if evolution_type == 'simple':
-        x0_copula_gaussian_dynamic = np.array([0, 0])
-        x0_copula_student_t_dynamic = np.array([0, 0, 0, 0])
-    elif evolution_type == 'HAR':
-        x0_copula_gaussian_dynamic = np.array([0, 0, 0 ,0])
-        x0_copula_student_t_dynamic = np.array([0, 0, 0, 0, 0, 0, 0, 0])
+    x0_copula_gaussian_dynamic = np.array([0.1]*npar_evolution)
+    x0_copula_student_t_dynamic = np.array([0.1]*2*npar_evolution)
 
     if copula_type == 'gaussian':
         copula_density = copula_density_gaussian
         h_function = h_function_gaussian
         transformation_copula = transformation_gaussian_copula
-        if dynamic:
-            x0_copula = x0_copula_gaussian_dynamic
-        else:
+        if RunParameters.estimate_static_vine:
             x0_copula = x0_copula_gaussian
+        else:
+            x0_copula = x0_copula_gaussian_dynamic
 
     if copula_type == 'student_t':
         copula_density = copula_density_student_t
         h_function = h_function_student_t
         transformation_copula = transformation_student_t_copula
-        if dynamic:
-            x0_copula = x0_copula_student_t_dynamic
-        else:
+        if RunParameters.estimate_static_vine:
             x0_copula = x0_copula_student_t
+        else:
+            x0_copula = x0_copula_student_t_dynamic
 
     if dynamic:
         transformation_copula = transformation_dynamic_equation
@@ -412,3 +504,24 @@ def get_vine_stuff(n, copula_type, dynamic=False):
     ## specify the parameter initial values for the optimization
     dictionary_parameter_initial_values = {1: x0_copula, 2: x0_copula, 3: x0_copula, 4: x0_copula, 5: x0_copula}
     return dictionary_transformation_functions, dictionary_copula_h_functions, dictionary_copula_densities, dictionary_parameter_initial_values
+
+#
+# def get_vine_x0_mm():
+#     ncopulas = len(get_keys())
+#
+#     if evolution_type == 'simple':
+#         x0_copula_gaussian_dynamic = np.array([0, 0, 0, 0]*ncopulas)
+#         x0_copula_student_t_dynamic = np.array([0, 0, 0, 0, 0, 0, 0, 0]*ncopulas)
+#     elif evolution_type == 'HAR':
+#         x0_copula_gaussian_dynamic = np.array([0.01, 0.5, 0.25 ,0.25]*ncopulas)
+#         x0_copula_student_t_dynamic = np.array([0, 0, 0, 0, 0, 0, 0, 0]*ncopulas)
+#     elif evolution_type == 'simple_ar':
+#         x0_copula_gaussian_dynamic = np.array([0, 0, 0, 0, 0]*ncopulas)
+#         x0_copula_student_t_dynamic = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]*ncopulas)
+#
+#     if RunParameters.distribution == 'gaussian':
+#         x0_copula = x0_copula_gaussian_dynamic
+#     elif RunParameters.distribution == 'student_t':
+#         x0_copula = x0_copula_student_t_dynamic
+#
+#     return x0_copula

@@ -1,6 +1,6 @@
 from marginal_engine.marginal_model import FilterEquation, MarginalObject
 import numpy as np
-from marginal_engine.distributions import gaussian, student_t, skewed_normal, skewed_t
+from marginal_engine.distributions import gaussian, student_t, skewed_t
 from scipy.optimize import LinearConstraint as lin_constraint
 from utility.mapping import *
 

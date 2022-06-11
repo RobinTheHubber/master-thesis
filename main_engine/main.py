@@ -1,12 +1,12 @@
-from datasets.estimated_parameters import dic_estimated_parameters_marginal_gaussian_constant_mean, \
-    dic_estimated_parameters_marginal_student_t_constant_mean
-from main_engine.realized_measure import get_realized_measure
-from main_engine.run_model_with_data import load_data, estimate_model
-from main_engine.run_parameters import RunParameters
-from marginal_engine.distributions import *
-from marginal_engine.garch_model import constant_mean_equation
-import pickle
 from forecasting_VaR.forecasting import  *
+from forecasting_VaR.testing_value_at_risk import analyze_value_at_risk_output
+from main_engine.estimation_and_var_workflows import estimation_and_var_workflow
+from main_engine.get_data import load_return_data
+from main_engine.run_parameters import loop_over_run_parameters
+from utility.util import get_keys
+
+
+# kstest(PITs[:, 0], 'uniform')
 
 
 def plot_filtered_parameters_vine_copula(filtered_rho):
@@ -19,99 +19,83 @@ def plot_filtered_parameters_vine_copula(filtered_rho):
     plt.show()
 
 
-def retrieve_model_estimation_output(distribution_marginal, copula_type, cpar_equation, marginal_models_list,
-                                     train_idx, dictionary_estimated_parameters_marginal, daily_realized_cov, n, list_sigma2, run_model=False):
-    if distribution_marginal == gaussian:
-        marginal_distribution = 'gaussian'
-    else:
-        marginal_distribution = 'student_t'
 
-    try:
-        with open('rho0_' + marginal_distribution + '_' + copula_type + '_' + cpar_equation + '.pkl', 'rb') as f:
-            dictionary_filtered_rho0 = pickle.load(f)
+def methods_of_moments_function(par, hij_hat, marginal_models_list, PITs):
+    h_function = RunParameters.get_copula_h_function()
+    h_function_inv = RunParameters.get_copula_h_inv_function()
+    n = RunParameters.nvar
+    N = RunParameters.N_mm
+    T = RunParameters.estimation_window
+    evolution_npar = RunParameters.get_evolution_npar()
+    cpar_equation = RunParameters.evolution_type
+    keys = get_keys()
 
-        with open('parameters_' + marginal_distribution + '_' + copula_type + '_' + cpar_equation + '.pkl', 'rb') as f:
-            dictionary_parameter_estimates = pickle.load(f)
+    realized_measure = dict(zip(keys, [[np.array([0]*T), np.array([0]), np.array([0])]]*len(keys)))
+    dictionary_theta = dict(zip(keys, [par[i*evolution_npar:(i+1)*npar_evolution] for i in range(len(keys))]))
 
-    except:
-        run_model = True
+    dictionary_filtered_rho = get_filtered_rho_before_estimation(PITs, h_function, dictionary_theta, n, cpar_equation, realized_measure)
+    dictionary_h, dictionary_h_inv = h_set_all_same(dictionary_filtered_rho, h_function, h_function_inv)
+    N_ = 1000
+    vine_data = np.zeros((N, T, n))
+    for i in range(int(N/N_)):
+        vine_data[i*N_:(i+1)*N_, :, :] = sample_from_vine3D(dictionary_h, dictionary_h_inv, dictionary_filtered_rho, n, T, N_)
 
-    if run_model:
-        dictionary_parameter_estimates, filtered_rho = estimate_model(marginal_models_list, n, copula_type,
-                                                                      cpar_equation, list_sigma2, train_idx,
-                                                                      dictionary_estimated_parameters_marginal,
-                                                                      daily_realized_cov)
-        dictionary_filtered_rho0 = dict(zip(list(filtered_rho.keys()), [v[:, -1] for k, v in filtered_rho.items()]))
-        with open('rho0_' + marginal_distribution + '_' + copula_type + '_' + cpar_equation + '.pkl', 'wb') as f:
-            pickle.dump(dictionary_filtered_rho0, f)
+    sigma_ij_hat = {}
+    for key in keys:
+        sigma_ij_hat[key] = np.zeros(T)
 
-        with open('parameters_' + marginal_distribution + '_' + copula_type + '_' + cpar_equation + '.pkl', 'wb') as f:
-            pickle.dump(dictionary_parameter_estimates, f)
+    mu_and_sigma2 = [marginal_model.filter() for marginal_model in marginal_models_list]
+    mu = np.vstack([filtered_output[0] for filtered_output in mu_and_sigma2])
+    sigma2 = np.vstack([filtered_output[1] for filtered_output in mu_and_sigma2])
 
-    return dictionary_parameter_estimates, dictionary_filtered_rho0
+    for t in range(T):
+        marginal_data_simulated = np.zeros((N, n))
+        for j in range(n):
+            marginal_model = marginal_models_list[j]
+            simulated_PITs_j = vine_data[:, t, j]
+            epsilon = marginal_model.distribution_module.ppf(marginal_model.distribution_parameters, simulated_PITs_j)
+            marginal_data_simulated[:, j] = mu[j, t] + epsilon * np.sqrt(sigma2[j, t])
 
-def retrieve_VaR_estimation_output(portfolio_returns, distribution_marginal, copula_type, cpar_equation, marginal_models_list,
-                                   train_idx, dictionary_estimated_parameters_marginal, realized_measure, weights, N,
-                                   test_set_size, daily_returns, dictionary_parameter_estimates, dictionary_filtered_rho0, run_model=False):
-    if distribution_marginal == gaussian:
-        marginal_distribution = 'gaussian'
-    else:
-        marginal_distribution = 'student_t'
+        for key in keys:
+            i, j = key
+            k = i + j
+            sigma_ij_hat[key][t] = np.cov(marginal_data_simulated[:, i-1], marginal_data_simulated[:, k-1])[0, 1]
 
-    try:
-        with open('VaR_GARCH_' + marginal_distribution + '_' + copula_type + '_' + cpar_equation + '.pkl', 'rb') as f:
-            value_at_risk_output_garch = pickle.load(f)
 
-        with open('VaR_' + marginal_distribution + '_' + copula_type + '_' + cpar_equation + '.pkl', 'rb') as f:
-            value_at_risk_output = pickle.load(f)
+    res = np.sum([sum((sigma_ij_hat[key][obs_pre_est:] - hij_hat[key].reshape((-1,)))**2) for key in keys])
+    return res
 
-    except:
-        run_model = True
+def method_of_moments_workflow(hij_hat):
+    # 0. let copula parameter be fixed
+    # 1. simulate from first tree component with same random numbers M times
+    # 2. transform ui, ui+j to Xi and Xi+j
+    # 3. estimate covariance matrix given copula parameter
+    # repeat above steps iteratively to minimize the criterion function (gij - hij)**2 to solve for copula parameter
 
-    if run_model:
-        value_at_risk_output_garch, value_at_risk_output = value_at_risk_workflow(marginal_models_list, test_set_size,
-                                                                                  dictionary_estimated_parameters_marginal,
-                                                                                  daily_returns,
-                                                                                  weights, N, portfolio_returns,
-                                                                                  train_idx, cpar_equation, copula_type,
-                                                                                  dictionary_parameter_estimates,
-                                                                                  dictionary_filtered_rho0,
-                                                                                  realized_measure)
+    nvar = RunParameters.nvar
+    mean_equation = RunParameters.mean_equation
+    train_idx = RunParameters.estimation_window
+    distribution = RunParameters.get_marginal_distribution()
+    distribution_str = RunParameters.distribution
+    T = RunParameters.estimation_window
 
-        with open('VaR_GARCH_' + marginal_distribution + '_' + copula_type + '_' + cpar_equation + '.pkl', 'wb') as f:
-            pickle.dump(value_at_risk_output_garch, f)
+    with open('parameters_' + distribution_str + '_gaussian_difference_inv.pkl', 'rb') as f:
+        dictionary_parameters = pickle.load(f)
 
-        with open('VaR_' + marginal_distribution + '_' + copula_type + '_' + cpar_equation + '.pkl', 'wb') as f:
-            pickle.dump(value_at_risk_output, f)
+    marginal_models_list, _, daily_returns = load_return_data(distribution, train_idx, mean_equation, nvar)
+    PITs = get_all_PITs(T, nvar, daily_returns.iloc[:T, :], dictionary_parameters, marginal_models_list, skip_idx=0)
+    x0 = get_vine_x0_mm()
+    res = minimize(methods_of_moments_function, method='BFGS', x0=x0, args=(hij_hat, marginal_models_list, PITs))
 
-    return value_at_risk_output_garch, value_at_risk_output
 
 def main():
-    evolution_type, copula_type, cpar_equation, run_model, run_var, skip_realized, train_idx, N, weights = RunParameters.get_run_parameters()
-    marginal_models_estimated = {gaussian:dic_estimated_parameters_marginal_gaussian_constant_mean,
-     student_t:dic_estimated_parameters_marginal_student_t_constant_mean}
-    mean_equation = constant_mean_equation
+    def perform_complete_workflow():
+        estimation_and_var_workflow()
+        analyze_value_at_risk_output()
 
-    ## estimate vine copula given vine copula type for each estimated marginal model
-    for distribution_marginal, dictionary_estimated_parameters_marginal in marginal_models_estimated.items():
-        marginal_models_list, n, T, daily_returns, daily_realized_cov, list_sigma2 = load_data(distribution_marginal, train_idx, mean_equation)
-        test_set_size = T - train_idx
+    loop_over_run_parameters(perform_complete_workflow)
+    analyze_value_at_risk_output()
 
-        dictionary_parameter_estimates, dictionary_filtered_rho0 = retrieve_model_estimation_output(distribution_marginal, copula_type, cpar_equation, marginal_models_list,
-                                         train_idx, dictionary_estimated_parameters_marginal, daily_realized_cov, n,
-                                         list_sigma2, run_model)
-
-        ## set value-at-risk parameters
-        portfolio_returns = (daily_returns.values @ weights).reshape((-1,))
-        realized_measure = get_realized_measure(n, daily_realized_cov, list_sigma2, (train_idx, T))
-
-        value_at_risk_output_garch, value_at_risk_output = retrieve_VaR_estimation_output(portfolio_returns, distribution_marginal, copula_type, cpar_equation, marginal_models_list,
-                                       train_idx, dictionary_estimated_parameters_marginal, realized_measure, weights,
-                                       N,
-                                       test_set_size, daily_returns, dictionary_parameter_estimates,
-                                       dictionary_filtered_rho0, run_var)
-
-        value_at_risk_test_workflow(portfolio_returns, train_idx, value_at_risk_output_garch, value_at_risk_output)
 
 
 if __name__ == '__main__':

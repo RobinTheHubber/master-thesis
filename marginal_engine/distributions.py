@@ -65,49 +65,74 @@ class student_t:
         nu = par[0]
         return t.cdf(x, df=nu, scale=np.sqrt((nu - 2) / nu))
 
-
-class skewed_normal:
+class skewed_t:
+    @staticmethod
+    def transform_parameters(par, backwards=False):
+        return [map_logistic(par[0], 1, 100, backwards), map_positive(par[1], backwards)]
 
     @staticmethod
     def get_initial_parameters():
-        return [...]
+        return [map_logistic(6, 1, 100, backwards=True), map_positive(1, backwards=True)]
 
     @staticmethod
     def get_npar():
-        return 1
+        return 2
 
     @staticmethod
     def ppf(par, x):
-        pass
+        nu, xi = par
+        threshold = 1 / (2 * xi) * 2 / (xi + 1 / xi)
+        s = np.sqrt((nu - 2) / nu)
+        y = np.zeros(len(x))
+        l = x < threshold
+        r = x >= threshold
+        y[l] = t.ppf((xi**2 + 1) * x[l] / 2, df=nu, scale=s) / xi
+        y[r] = t.ppf(((x[r] * (xi + 1 / xi) / 2) - 1 / (2 * xi)) / xi + 1 / 2, df=nu, scale=s) * xi
+        return y
 
     @staticmethod
-    def loglik(par, x):
-        pass
+    def loglik(par, x, array_sigma2, array_mu):
+        # check if centralized observations are negative or positive and call student t loglikelihood scaled by skewness parameter xi
+        nu, xi = par
+        xi_ = ((x-array_mu) < 0) * xi + ((x-array_mu) > 0) / xi
+        y = (x - array_mu) / np.sqrt(array_sigma2) * xi_
+        logpdf = - 1 / 2 * np.log((nu - 2) * np.pi * array_sigma2) - np.log(xi + 1/xi) + loggamma((nu + 1) / 2) - loggamma(nu / 2) - (
+                nu + 1) / 2 * np.log(1 + y ** 2 / (nu - 2))
+        llik = sum(logpdf)
+        return llik
 
     @staticmethod
     def cdf(par, x):
-        pass
+        nu, xi = par
+        s = np.sqrt((nu - 2) / nu)
+        cdf = 2 / (xi + 1 / xi) * (
+              (x <= 0)  * 1 / xi * t.cdf(x*xi, df=nu, scale=s) + \
+              (x > 0) * (1 / (2 * xi) + xi * (t.cdf(x / xi, df=nu, scale=s) - t.cdf(0, df=nu, scale=s)))
+              )
+
+        return cdf
 
 
-class skewed_t:
-    # todo: create skewed-t distribution
 
-    @staticmethod
-    def get_initial_parameters():
-        return [5, ...]
 
-    @staticmethod
-    def get_npar():
-        return 1
-
-    @staticmethod
-    def ppf(x):
-        pass
-
-    @staticmethod
-    def loglik(x):
-        pass
-
-    @staticmethod
-    def cdf(x):
-        pass
+#
+# class skewed_normal:
+#     @staticmethod
+#     def get_initial_parameters():
+#         return [5, ...]
+#
+#     @staticmethod
+#     def get_npar():
+#         return 1
+#
+#     @staticmethod
+#     def ppf(x):
+#         pass
+#
+#     @staticmethod
+#     def loglik(x):
+#         pass
+#
+#     @staticmethod
+#     def cdf(x):
+#         pass

@@ -1,7 +1,6 @@
 import numpy as np
 
-from vine_copula_engine.copula_functions import h_function_student_t, h_function_inv_student_t, h_function_gaussian, \
-    h_function_inv_gaussian
+from vine_copula_engine.copula_functions import *
 from utility.mapping import map_logistic
 
 
@@ -27,8 +26,7 @@ def rho_update(par, rho_, x, v, operation='difference'):
 #
 #     return map_logistic(rho_next, -1, 1, backwards=False)
 
-def sample_from_dynamic_vine(distribution, n, T, cpar_equation=None):
-    par = [0, .9, .4]  # todo different  evolution equation parameter for different copula parameters
+def sample_from_dynamic_vine(distribution, n, T, par = None, cpar_equation=None):
     dictionary_theta = get_theta(distribution)
     dictionary_theta_all = dictionary_theta.copy()
     if distribution == 'gaussian':
@@ -174,6 +172,10 @@ def h_set_all_same(dictionary_theta, h_function, h_function_inv):
     for key, value in dictionary_theta.items():
         dictionary_h[key] = h_function
         dictionary_h_inv[key] = h_function_inv
+
+    # for key in [(3,1), (3,2), (4,1)]:
+    #     dictionary_h_inv[key] = h_function_inv_independence
+    #     dictionary_h[key] = h_function_inv_independence
 
     return dictionary_h, dictionary_h_inv
 

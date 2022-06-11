@@ -1,11 +1,10 @@
-import pandas as pd
-from vine_copula_engine.simulate_vine_algorithm import h_set_all_same, sample_from_vine3D
+from marginal_engine.distributions import student_t
+from marginal_engine.garch_model import garch_11_equation, eq_cons_garch2, constant_mean_equation
+from vine_copula_engine.simulate_vine_algorithm import h_set_all_same, sample_from_vine3D, sample_from_vine
 from vine_copula_engine.vine_copula_estimation import *
-from vine_copula_engine.copula_functions import obs_pre_est
 import matplotlib.pyplot as plt
 from marginal_engine.marginal_model import MarginalObject
-from scipy.stats import chi2
-from vartests import duration_test
+
 
 def update_parameters(marginal_model, estimated_parameters):
     marginal_model.mean_equation.update_parameters(estimated_parameters['mean'])
@@ -37,25 +36,33 @@ def compute_value_at_risk(data, weights, cpar_equation, copula_type, marginal_mo
     n = data.shape[1]
     training_set_size = T - test_set_size
 
-    # get PITs from estimated marginal models for test set
-    PITs = np.zeros((test_set_size, n))
-    for j in range(n):
-        PITs_j = get_PITs_with_estimated_parameters(data.iloc[:, j], dicParameters_estimated[j + 1],
-                                                    marginal_models_list[j])
-        PITs[:, j] = PITs_j[training_set_size:]
-
     ## filter the rho vectors over time (non-path dependent)
-    # rho0 = dict(zip(list(dic_estimated_parameters_all_gaussian.keys()), [0.5] * 15))
-    dictionary_filtered_rho_test_set = get_filtered_rho_after_estimation(PITs, h_function, dicParameters_estimated, n,
-                                                                         cpar_equation, filtered_rho0, realized_measure)
+    PITs = get_all_PITs(test_set_size, n, data, dicParameters_estimated, marginal_models_list, training_set_size)
 
-    dictionary_h, dictionary_h_inv = h_set_all_same(dictionary_filtered_rho_test_set, h_function, h_function_inv)
-    N_ = 1000
-    PITs_test_set = np.zeros((N, test_set_size, n))
-    for i in range(int(N / N_)):
-        PITs_test_set[i * N_:(i + 1) * N_, :, :] = sample_from_vine3D(dictionary_h, dictionary_h_inv,
-                                                                      dictionary_filtered_rho_test_set, n,
-                                                                      test_set_size, N_)
+    ## obtain PITs for the test set in order to forecast value-at-risk figures
+    if RunParameters.estimate_static_vine:
+        dictionary_h, dictionary_h_inv = h_set_all_same(dicParameters_estimated, h_function, h_function_inv)
+        N_ = 1000
+        PITs_test_set = np.zeros((N, test_set_size, n))
+        for i in range(int(N / N_)):
+            PITs_test_set[i * N_:(i + 1) * N_, :, :] = sample_from_vine(dictionary_h, dictionary_h_inv, dicParameters_estimated, n, test_set_size*N_).reshape((N_, test_set_size, n))
+
+    else:
+        dictionary_filtered_rho_test_set = get_filtered_rho_after_estimation(PITs, h_function, dicParameters_estimated, n,
+                                                                             cpar_equation, filtered_rho0, realized_measure)
+
+        dictionary_h, dictionary_h_inv = h_set_all_same(dictionary_filtered_rho_test_set, h_function, h_function_inv)
+        N_ = 1000
+        PITs_test_set = np.zeros((N, test_set_size, n))
+
+        for key in get_keys():
+            plt.plot(dictionary_filtered_rho_test_set[key][0])
+
+        for i in range(int(N / N_)):
+            PITs_test_set[i * N_:(i + 1) * N_, :, :] = sample_from_vine3D(dictionary_h, dictionary_h_inv,
+                                                                          dictionary_filtered_rho_test_set, n,
+                                                                          test_set_size, N_)
+
 
 
 
@@ -76,6 +83,7 @@ def compute_value_at_risk(data, weights, cpar_equation, copula_type, marginal_mo
             marginal_data_simulated[t] = mu[t] + epsilon * np.sqrt(sigma2[t])
 
         portfolio_index_simulated += marginal_data_simulated * weights[j]
+        plt.plot(np.quantile(portfolio_index_simulated, q=1-q, axis=1))
 
     for q in Q:
         value_at_risk_dictionary[q] = np.quantile(portfolio_index_simulated, q=1-q, axis=1)
@@ -83,19 +91,93 @@ def compute_value_at_risk(data, weights, cpar_equation, copula_type, marginal_mo
 
     portfolio_index_return = (data.values @ weights).reshape((-1,))
 
-    plt.plot(portfolio_index_return[training_set_size:])
     for q in Q:
+        plt.figure(100 * q)
+        plt.plot(portfolio_index_return[-test_set_size:])
         plt.plot(value_at_risk_dictionary[q])
+        plt.legend()
+        plt.show()
 
     return value_at_risk_dictionary
+
+
+def get_all_PITs(T, n, data, dicParameters_estimated, marginal_models_list, skip_idx):
+    # get PITs from estimated marginal models for test set
+    PITs = np.zeros((T, n))
+    for j in range(n):
+        PITs_j = get_PITs_with_estimated_parameters(data.iloc[:, j], dicParameters_estimated[j + 1],
+                                                    marginal_models_list[j])
+        PITs[:, j] = PITs_j[skip_idx:]
+
+    return PITs
+
+def get_value_at_risk_output_MV(test_set_size, portfolio_returns):
+    Q = [0.9, 0.95, 0.99]
+    value_at_risk_dictionary = {}
+    np.random.seed(1991)
+
+    for q in Q:
+        value_at_risk_dictionary[q] = np.zeros(test_set_size)
+
+    for i in range(test_set_size):
+        t = test_set_size - i
+        sigma = np.std(portfolio_returns[:-t])
+        for q in Q:
+            value_at_risk_dictionary[q][i] = norm.ppf(q=1-q) * sigma
+
+    return value_at_risk_dictionary
+
+
+def get_value_at_risk_output_single_garch(test_set_size, portfolio_returns, N, distribution):
+    Q = [0.9, 0.95, 0.99]
+    value_at_risk_dictionary = {}
+    np.random.seed(1991)
+
+    mean_equation = constant_mean_equation
+    garch_model = MarginalObject(distribution_module_epsilon=distribution, volatility_equation=garch_11_equation,
+                                 mean_equation=mean_equation)
+
+    bounds = [[-np.inf, np.inf], [-np.inf, np.inf], [0, 1], [0, 1]]
+    if distribution == student_t:
+        bounds = [[-np.inf, np.inf]] + bounds
+
+    garch_model.set_bounds(bounds)
+    garch_model.set_constraints([eq_cons_garch2])
+    garch_model.set_data(portfolio_returns[:-test_set_size])
+    garch_model.fit()
+
+    garch_model.set_data(portfolio_returns)
+    mu_, sigma2_ = garch_model.filter()
+    mu, sigma2 = mu_[-test_set_size:], sigma2_[-test_set_size:]
+
+    for q in Q:
+        quantile = garch_model.distribution_module.ppf(garch_model.distribution_parameters, 1 - q)
+        value_at_risk_dictionary[q] = quantile * np.sqrt(sigma2) + mu
+
+    return value_at_risk_dictionary
+
+
+def get_value_at_risk_output_HS(test_set_size, portfolio_returns, N):
+    Q = [0.9, 0.95, 0.99]
+    value_at_risk_dictionary = {}
+    np.random.seed(1991)
+
+    for q in Q:
+        value_at_risk_dictionary[q] = np.zeros(test_set_size)
+
+    for i in range(test_set_size):
+        t = test_set_size - i
+        resampled_portfolio_returns = np.random.choice(portfolio_returns[:-t], N)
+        for q in Q:
+            value_at_risk_dictionary[q][i] = np.quantile(resampled_portfolio_returns, q=1-q)
+
+    return value_at_risk_dictionary
+
 
 def get_value_at_risk_output_garch(list_marginal_models, test_set_size, dicEstimated_parameters, data, weights, N):
     n = len(list_marginal_models)
     Q = [0.9, 0.95, 0.99]
     value_at_risk_dictionary = {}
-
-    for q in Q:
-        value_at_risk_dictionary[q] = np.zeros((test_set_size, n))
 
     portfolio_index_simulated = np.zeros((test_set_size, N))
     for j in range(n):
@@ -116,65 +198,17 @@ def get_value_at_risk_output_garch(list_marginal_models, test_set_size, dicEstim
         value_at_risk_dictionary[q] = np.quantile(portfolio_index_simulated, q=1 - q, axis=1)
 
     portfolio_index_return = (data @ weights).reshape((-1,))
-    plt.plot(portfolio_index_return[-test_set_size:])
-    for q in Q:
-        plt.plot(value_at_risk_dictionary[q])
-
-    plt.show()
 
     return value_at_risk_dictionary
-
-def compute_value_at_risk_test_output(data, value_at_risk_dictionary):
-    Q = list(value_at_risk_dictionary.keys())
-    dictionary_VaR_test_results = {}
-    for q in Q:
-        dictionary_VaR_test_results[q] = compute_test_value_at_risk(data[obs_pre_est:], q,
-                                                                         value_at_risk_dictionary[q][obs_pre_est:])
-    return dictionary_VaR_test_results
-
-
-def proportion_of_failures(violations):
-    pass
-def haas_independence_test(violations):
-    pass
-
-def uc_test(violations, alpha):
-    T = len(violations)
-    T1 = sum(violations)
-    T0 = T - T1
-
-    statistic = - 2 * np.log((1-alpha)**T0 * alpha **T1 / (1 - T1/T)**T0 * T1/T**T1)
-    p_value = 1 - chi2.cdf(statistic, df=1)
-    return (statistic, p_value)
-
-def duration_testing(violations, confidence_levels):
-    try:
-        items_of_interest = ['log-likelihood ratio test statistic', 'null hypothesis', 'decision']
-        duration_test_results = dict(zip(confidence_levels, [ \
-            [v for k, v in duration_test(pd.Series(violations), alpha).items() if k in items_of_interest] \
-            for alpha in confidence_levels]))
-    except:
-        duration_test_results = None
-
-    return duration_test_results
-
-def compute_test_value_at_risk(data_array, q, value_at_risk_array):
-    confidence_levels = [0.01, 0.025, 0.05, 0.1]
-    violations = data_array < value_at_risk_array
-    violation_ratio = sum(violations) / len(data_array)
-    UC_test = uc_test(violations, alpha=1-q)
-    IND_test = []
-    duration_test_results = duration_testing(violations, confidence_levels)
-    output = {'violation_ratio': violation_ratio, 'UC':UC_test,'IND':IND_test, 'DURATION':duration_test_results}
-    return output
 
 def value_at_risk_workflow(marginal_models_list, test_set_size, dictionary_estimated_parameters_marginal, daily_returns,
                            weights, N, portfolio_returns, train_idx, cpar_equation, copula_type,
                            dictionary_parameter_estimates, dictionary_filtered_rho0, realized_measure):
-    ## test value-at-risk output GARCH model
-    value_at_risk_output_garch = get_value_at_risk_output_garch(marginal_models_list, test_set_size,
-                                                                dictionary_estimated_parameters_marginal,
-                                                                daily_returns.values, weights, N=N)
+
+    # ## test value-at-risk output GARCH model
+    # value_at_risk_output_garch = get_value_at_risk_output_garch(marginal_models_list, test_set_size,
+    #                                                             dictionary_estimated_parameters_marginal,
+    #                                                             daily_returns.values, weights, N=N)
 
     ## test value-at-risk output dynamic copula model
     value_at_risk_output = compute_value_at_risk(daily_returns, weights, cpar_equation, copula_type,
@@ -182,16 +216,6 @@ def value_at_risk_workflow(marginal_models_list, test_set_size, dictionary_estim
                                                  dictionary_parameter_estimates, dictionary_filtered_rho0,
                                                  test_set_size, N=N, realized_measure=realized_measure)
 
-    return value_at_risk_output_garch, value_at_risk_output
+    return value_at_risk_output
 
-def value_at_risk_test_workflow(portfolio_returns, train_idx, value_at_risk_output_garch, value_at_risk_output):
-    value_at_risk_test_output_garch = compute_value_at_risk_test_output(portfolio_returns[train_idx:],
-                                                                    value_at_risk_output_garch)
-    for k, v in value_at_risk_test_output_garch.items():
-        print((k, v))
 
-    value_at_risk_test_output = compute_value_at_risk_test_output(portfolio_returns[train_idx:],
-                                                                  value_at_risk_output)
-
-    for k, v in value_at_risk_test_output.items():
-        print((k, v))
