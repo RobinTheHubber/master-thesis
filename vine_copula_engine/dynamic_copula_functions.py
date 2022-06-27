@@ -1,3 +1,5 @@
+import pickle
+
 import numpy as np
 import matplotlib.pyplot as plt
 from utility.mapping import map_logistic
@@ -46,7 +48,7 @@ def par_filter(par, rho0, vX, vV, mapping_par, operation='difference'):
     rho[:obs_pre_est] = map_logistic(rho0, a, b, backwards=True)
 
     # rho_next = lambda d_day, d_week, d_month: xi + phi_1 * d_day + phi_2 * d_week + phi_3 * d_month
-    rho_next = lambda v, x, rho: xi + phi_1 * rho + phi_2 * abs(x - v)
+    rho_next = lambda v, x, rho: xi + phi_1 * rho + phi_2 * (1 - abs(x-v))
 
     for t in range(obs_pre_est, T+1):
         rho[t] = rho_next(vV[t-1], vX[t-1], rho[t-1])
@@ -110,32 +112,34 @@ def par_filter_realized(par, rho0, realized_measure, mapping_par, vX, vV):
 # copula model
 ######################
 
-def filter_copula_parameters(par, u1, u2, cpar_equation, rho0=None, realized_measure=None):
+
+def filter_copula_parameters(par, u1, u2, cpar_equation, rho0=None, realized_measure=None, par_static_estimated=None):
     K = int(len(par) / npar_evolution)
     T = len(u1)
     copula_par = np.zeros((K, T+1))
 
-    if rho0 is None:
-        for k in range(K):
-            if k == 0:
-                copula_par[0, 0] = np.corrcoef(u1, u2)[0, 1]
+    copula_par[0, :] = rho0
 
-            if k == 1:
-                copula_par[1, 0] = 4
+    if RunParameters.copula_type == 'gaussian':
+        if rho0 is None:
+            copula_par[0, 0] = np.corrcoef(u1, u2)[0, 1]
+        mapping_par = [(-0.999999, .999999)]
+    if RunParameters.copula_type == 'student_t':
+        if rho0 is None:
+            copula_par[0, 0] = np.corrcoef(u1, u2)[0, 1]
+            copula_par[1, 0] = 4
+        mapping_par = [(-0.999999, .999999), (2, 60)]
 
+    if RunParameters.copula_type == 'clayton':
+        if rho0 is None:
+            copula_par[0, 0] = RunParameters.par_static_estimated[RunParameters.index]
+        mapping_par = [[0.01, 10]]
 
     for k in range(K):
-        # todo: make use of static vine copula estimated parameters for x0 for dynamic vine copula
-        # it will be pretty similar to sample correlation between v1 and v2 but for student-t might be a bit more difficult
-        if k == 0:
-            mapping_par = (-0.999999, .999999)
-        if k == 1:
-            mapping_par = (2, 60)
-
         if RunParameters.skip_realized:
-            copula_par[k, :] = par_filter(par[npar_evolution * k:npar_evolution * k + npar_evolution], copula_par[k, :obs_pre_est], u1, u2, mapping_par, cpar_equation)
+            copula_par[k, :] = par_filter(par[npar_evolution * k:npar_evolution * k + npar_evolution], copula_par[k, :obs_pre_est], u1, u2, mapping_par[k], cpar_equation)
         else:
-            copula_par[k, :] = par_filter_realized(par[npar_evolution * k:npar_evolution * k + npar_evolution], copula_par[k, :obs_pre_est], realized_measure, mapping_par, u1, u2)
+            copula_par[k, :] = par_filter_realized(par[npar_evolution * k:npar_evolution * k + npar_evolution], copula_par[k, :obs_pre_est], realized_measure, mapping_par[k], u1, u2)
 
     return copula_par
 

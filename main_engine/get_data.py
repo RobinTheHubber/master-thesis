@@ -4,14 +4,19 @@ from main_engine.run_parameters import RunParameters
 from marginal_engine.distributions import student_t, skewed_t
 from marginal_engine.garch_model import garch_11_equation, ar1_equation, eq_cons_garch2
 from marginal_engine.marginal_model import MarginalObject
+import pickle
 
 def get_weights(returns):
     T = returns.shape[0]
-    if RunParameters.weighting == 'constant':
-        return np.tile([.2]*5, (T, 1))
-    elif RunParameters.weighting == 'price-weighted':
-        prices = ...
-        return returns / np.sum(prices, axis=1).reshape((-1,1))
+    TE = RunParameters.estimation_window
+    if RunParameters.equal_weighting:
+        W = np.tile([.2]*5, (T-TE, 1))
+    else:
+        sstatic = RunParameters.estimate_static_vine * 'static_'
+        srealized = (1 - RunParameters.skip_realized) * 'realized_'
+        with open('MV_' + RunParameters.copula_type + sstatic + srealized + 'weights.pkl', 'rb') as f:
+            W = pickle.load(f)['W']
+    return W
 
 
 def get_portfolio_returns():
@@ -20,11 +25,16 @@ def get_portfolio_returns():
     daily_returns = daily_returns_data.iloc[:, 1:1 + nvar].values
     weights = get_weights(daily_returns)
 
-    portfolio_returns = np.sum(daily_returns * weights, axis=1)
+    portfolio_returns = np.sum(daily_returns[RunParameters.estimation_window:] * weights, axis=1)
     return portfolio_returns
 
 
-def load_return_data(distribution, train_idx, mean_equation, nvar):
+def load_return_data(nvar):
+    daily_returns_data = pd.read_csv('../datasets/10_dim_daily_return.csv')
+    daily_returns = daily_returns_data.iloc[:, 1:1+nvar]
+    return daily_returns
+
+def load_return_models_and_data(distribution, train_idx, mean_equation, nvar):
     daily_returns_data = pd.read_csv('../datasets/10_dim_daily_return.csv')
     daily_returns = daily_returns_data.iloc[:, 1:1+nvar]
     # best order to maximize pair-wise correlation sum (4, 3, 9, 1, 2, 7, 8, 6, 5, 10)

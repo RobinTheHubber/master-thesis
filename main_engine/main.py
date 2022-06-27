@@ -1,8 +1,11 @@
+from scipy.stats import kstest
+
 from forecasting_VaR.forecasting import  *
 from forecasting_VaR.testing_value_at_risk import analyze_value_at_risk_output
 from main_engine.estimation_and_var_workflows import estimation_and_var_workflow
-from main_engine.get_data import load_return_data
+from main_engine.get_data import load_return_models_and_data, load_return_data, load_realized_cov
 from main_engine.run_parameters import loop_over_run_parameters
+from marginal_engine.realGARCH import *
 from utility.util import get_keys
 
 
@@ -82,19 +85,54 @@ def method_of_moments_workflow(hij_hat):
     with open('parameters_' + distribution_str + '_gaussian_difference_inv.pkl', 'rb') as f:
         dictionary_parameters = pickle.load(f)
 
-    marginal_models_list, _, daily_returns = load_return_data(distribution, train_idx, mean_equation, nvar)
+    marginal_models_list, _, daily_returns = load_return_models_and_data(distribution, train_idx, mean_equation, nvar)
     PITs = get_all_PITs(T, nvar, daily_returns.iloc[:T, :], dictionary_parameters, marginal_models_list, skip_idx=0)
     x0 = get_vine_x0_mm()
     res = minimize(methods_of_moments_function, method='BFGS', x0=x0, args=(hij_hat, marginal_models_list, PITs))
 
 
 def main():
+    # data = load_return_data(RunParameters.nvar)
+    #
+    # cov , sig2 = load_realized_cov(5)
+    # check_skewnewss_in_realEGARCH(data.iloc[:, 0], sig2)
+    # for i in range(2, RunParameters.nvar+1):
+    #     dictionary_realized_measure, list_sigma2 = load_realized_cov(RunParameters.nvar)
+    #     par = estimate_realEGARCH(data.iloc[:, i-1], list_sigma2[i])
+    #     # pits = get_PITs_realGARCH(data.iloc[:, i-1], list_sigma2[i], par)
+    #     # print(kstest(pits, 'uniform'))
+    #
+#
+# # u ** (-theta) + 1 = u1 ** (-theta) + u2 ** (-theta)
+# theta = 1.5
+# N = 10000
+# u, u1 = np.random.random((2,N))
+# u2 = h_function_inv_clayton(theta, u, u1)
+# plt.scatter(u1, u2)
+# plt.show()
+
+
+
     def perform_complete_workflow():
         estimation_and_var_workflow()
-        analyze_value_at_risk_output()
 
-    loop_over_run_parameters(perform_complete_workflow)
-    analyze_value_at_risk_output()
+    RunParameters.run_model = False
+    RunParameters.run_var = True
+    vine_choice = {'static': 1, 'dynamic':1, 'realized': 1}
+    copulas = ['clayton', 'gaussian']
+
+
+    ## get output
+    RunParameters.equal_weighting = False
+    loop_over_run_parameters(perform_complete_workflow, vine_choice, copulas)
+    RunParameters.equal_weighting = True
+    loop_over_run_parameters(perform_complete_workflow, vine_choice, copulas)
+
+    ## test outoput
+    RunParameters.equal_weighting = True
+    analyze_value_at_risk_output(vine_choice, copulas)
+    RunParameters.equal_weighting = False
+    analyze_value_at_risk_output(vine_choice, copulas)
 
 
 

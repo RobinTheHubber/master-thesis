@@ -9,9 +9,17 @@ from utility.mapping import map_logistic
 """""
 define copula density in log form for numerical convenience 
 """""
-def copula_density_independence(rho, u1, u2):
-    llik = sum(np.log(u1) + np.log(u2))
+def copula_density_clayton(theta, u1, u2):
+    copula_log_density = np.log(theta + 1) - (theta + 1) * (np.log(u1) + np.log(u2)) \
+                         -2 * (theta + 1) / theta * np.log(u1 ** (-theta) + u2 ** (-theta) - 1)
+    llik = np.sum(copula_log_density)
     return -llik
+#
+# U = np.arange(0, 40, 0.01)
+# V = [copula_density_clayton(t, u1, u2) for t in U]
+# import matplotlib.pyplot as plt
+# plt.plot(U, V)
+# plt.show()
 
 def copula_density_gaussian(rho_, u1, u2, transformation=False):
     if transformation:
@@ -53,8 +61,9 @@ def copula_density_student_t(par, u1, u2, transformation=False):
 """""
 h-function is defined as h(x,v):= derivative of C(x,v) wrt v
 """""
-def h_function_independence(rho, x, v):
-    return x
+def h_function_clayton(theta, x, v):
+    h_function_value = v ** (- 1 - theta) * (x ** (-theta) + v ** (-theta) - 1) ** (-1 -1 / theta)
+    return h_function_value
 
 def h_function_gaussian(rho, x, v):
     x1, x2 = norm.ppf((x, v))
@@ -76,8 +85,9 @@ def h_function_student_t(par, x, v):
 ######################
 ## h-inv function's ######
 ######################
-def h_function_inv_independence(rho, x, v):
-    return x
+def h_function_inv_clayton(theta, x, v):
+    h_inv_value = ((x * v ** (theta + 1)) ** (- theta / (theta + 1)) + 1 - v ** (-theta))** (-1 / theta)
+    return h_inv_value
 
 def h_function_inv_student_t(par, x, v):
     rho, nu = par
@@ -112,6 +122,14 @@ def transformation_gaussian_copula(par, backwards=False):
         par = np.log(x / (1 - x))
     else:
         par = 2 * np.exp(par) / (1 + np.exp(par)) - 1
+
+    return par
+
+def transformation_clayton_copula(par, backwards=False):
+    if backwards:
+        par = np.log(par)
+    else:
+        par = np.exp(par)
 
     return par
 

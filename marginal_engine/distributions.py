@@ -53,6 +53,10 @@ class student_t:
 
     @staticmethod
     def loglik(par, x, array_sigma2, array_mu):
+        if array_mu is None and array_sigma2 is None:
+            array_mu = np.zeros(x.shape)
+            array_sigma2 = np.ones(x.shape)
+
         nu = par[0]
         y = (x - array_mu) / np.sqrt(array_sigma2)
         logpdf = - 1 / 2 * np.log((nu - 2) * np.pi * array_sigma2) + loggamma((nu + 1) / 2) - loggamma(nu / 2) - (
@@ -92,6 +96,10 @@ class skewed_t:
 
     @staticmethod
     def loglik(par, x, array_sigma2, array_mu):
+        if array_mu is None and array_sigma2 is None:
+            array_mu = np.zeros(x.shape)
+            array_sigma2 = np.ones(x.shape)
+
         # check if centralized observations are negative or positive and call student t loglikelihood scaled by skewness parameter xi
         nu, xi = par
         xi_ = ((x-array_mu) < 0) * xi + ((x-array_mu) > 0) / xi
@@ -106,7 +114,7 @@ class skewed_t:
         nu, xi = par
         s = np.sqrt((nu - 2) / nu)
         cdf = 2 / (xi + 1 / xi) * (
-              (x <= 0)  * 1 / xi * t.cdf(x*xi, df=nu, scale=s) + \
+              (x <= 0) * 1 / xi * t.cdf(x*xi, df=nu, scale=s) + \
               (x > 0) * (1 / (2 * xi) + xi * (t.cdf(x / xi, df=nu, scale=s) - t.cdf(0, df=nu, scale=s)))
               )
 

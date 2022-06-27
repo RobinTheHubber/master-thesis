@@ -283,13 +283,15 @@ def get_bounds(K):
             bounds = [[-.999999,.999999]]
         if RunParameters.copula_type == 'student_t':
             bounds = [[-.999999, .999999], [2, 60]]
+        if RunParameters.copula_type == 'clayton':
+            bounds = [[0.01, 10]]
 
     else:
         if RunParameters.evolution_type == 'simple':
             if RunParameters.skip_realized:
-                bounds = [[0, np.inf], [0, 1], [0, np.inf]]
+                bounds = [[-np.inf, np.inf], [0, 1], [-np.inf, np.inf]]
             else:
-                bounds = [[0, np.inf], [0, 1], [0, np.inf]]
+                bounds = [[-np.inf, np.inf], [0, 1], [0, np.inf]]
 
             if RunParameters.copula_type == 'student_t':
                 bounds += [[0, np.inf], [0, 1], [-np.inf, 0]]
@@ -308,6 +310,7 @@ def estimate_first_tree(filtered_rho, dictionary_v, dictionary_theta, transforma
         # x0_tree = [map_logistic(0.67322214, -1, 1, backwards=True), 0, 0, 0,
         #            map_logistic(8.09622576, 2, 60, backwards=True), 0, 0, 0]
 
+        RunParameters.index = (1, i)
         res = minimize(x0=x0_tree, method=RunParameters.optimization_method, bounds=bounds, options={'maxiter': 1000}, fun=copula_density_dynamic,
                        args=(dictionary_v[(0, i)], dictionary_v[(0, i + 1)], copula_density, cpar_equation, realized_measure[(1, i)]))
 
@@ -349,6 +352,7 @@ def estimate_tree(filtered_rho, dictionary_v, dictionary_v_prime, dictionary_the
     for i in range(1, n - j + 1):
         # x0 = transformations_function(x0_tree, backwards=True)
         x0 = x0_tree
+        RunParameters.index = (j, i)
         K = int(len(x0)/npar_evolution)
         bounds = get_bounds(K)
         res = minimize(x0=x0, method=RunParameters.optimization_method, bounds=bounds, options={'maxiter': 1000}, fun=copula_density_dynamic, args=(
@@ -470,6 +474,8 @@ def get_vine_stuff(n, copula_type, dynamic=False):
     x0_copula_student_t = [0, 6]
     x0_copula_gaussian_dynamic = np.array([0.1]*npar_evolution)
     x0_copula_student_t_dynamic = np.array([0.1]*2*npar_evolution)
+    x0_copula_archemedian = [1]
+    x0_copula_archemedian_dynamic = np.array([0.1]*npar_evolution)
 
     if copula_type == 'gaussian':
         copula_density = copula_density_gaussian
@@ -480,14 +486,14 @@ def get_vine_stuff(n, copula_type, dynamic=False):
         else:
             x0_copula = x0_copula_gaussian_dynamic
 
-    if copula_type == 'student_t':
-        copula_density = copula_density_student_t
-        h_function = h_function_student_t
-        transformation_copula = transformation_student_t_copula
+    if copula_type == 'clayton':
+        copula_density = copula_density_clayton
+        h_function = h_function_clayton
+        transformation_copula = transformation_clayton_copula
         if RunParameters.estimate_static_vine:
-            x0_copula = x0_copula_student_t
+            x0_copula = x0_copula_archemedian
         else:
-            x0_copula = x0_copula_student_t_dynamic
+            x0_copula = x0_copula_archemedian_dynamic
 
     if dynamic:
         transformation_copula = transformation_dynamic_equation

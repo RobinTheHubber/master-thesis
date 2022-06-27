@@ -22,8 +22,8 @@ def HAR_estimation_workflow(from_, to_):
 
 def estimate_HAR_system(hik_, estimation_window, from_, to_):
     pre_obs = 22
-    hik = np.log(hik_-2*min(hik_))
-    # hik = hik_
+    # hik = np.log(hik_-2*min(hik_))
+    hik = hik_
     hij_D = [hik[t - 1] for t in range(pre_obs, estimation_window)]
     hij_W = [np.mean(hik[t - 5:t]) for t in range(pre_obs, estimation_window)]
     hij_M = [np.mean(hik[t - 22:t]) for t in range(pre_obs, estimation_window)]

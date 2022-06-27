@@ -10,20 +10,24 @@ from main_engine.realized_measure import get_realized_measure
 from vine_copula_engine.vine_copula_estimation import get_vine_stuff, estimate_vine_sequentially
 
 
-def estimate_model(marginal_models_list, n, copula_type, cpar_equation, list_sigma2, training_idx, dictionary_theta=None, daily_realized_cov=None):
+def estimate_model(marginal_models_list, n, copula_type, cpar_equation, list_sigma2, training_idx, data, dictionary_theta=None, daily_realized_cov=None):
     dynamic = True
     dictionary_transformation_functions, dictionary_copula_h_functions, \
     dictionary_copula_densities, dictionary_parameter_initial_values = get_vine_stuff(n=n, copula_type=copula_type,
                                                                                       dynamic=dynamic)
-
     #### Estimate marginal models
     if dictionary_theta is None:
         dictionary_v, dictionary_theta = estimate_marginals(marginal_models_list)
     else:
         dictionary_v = {}
-        for i, marginal_model in enumerate(marginal_models_list):
-            dictionary_v[(0, i + 1)] = get_PITs_with_estimated_parameters(marginal_model.data, dictionary_theta[i + 1],
-                                                                          marginal_model)
+        ldist = RunParameters.ldist
+        pits, _ = get_all_PITs_realEGARCH(training_idx, n, data, dictionary_theta, ldist, list_sigma2)
+        for i in range(1, n+1):
+            dictionary_v[(0, i)] = pits[:, i-1]
+
+        # for i, marginal_model in enumerate(marginal_models_list):
+        #     dictionary_v[(0, i + 1)] = get_PITs_with_estimated_parameters(marginal_model.data, dictionary_theta[i + 1],
+        #                                                                   marginal_model)
 
     ### retrieve realized measures
     if daily_realized_cov is not None:
